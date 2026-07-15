@@ -1,0 +1,43 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Raw and processed datasets
+data_raw/
+data_processed/
+datasets/
+
+# Model weights and checkpoints
+checkpoints/
+weights/
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# Training / inference outputs
+outputs/
+runs/
+logs/
+
+# Large media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Office temporary files
+~$*.docx
+
+# OS files
+.DS_Store
+Thumbs.db

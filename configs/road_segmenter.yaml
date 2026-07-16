@@ -1,0 +1,52 @@
+model:
+  encoder_name: mit_b2
+  encoder_weights: imagenet
+  checkpoint_path: "checkpoints/segformer_mit-b2_8x1_1024x1024_160k_cityscapes_20211206_081607-cf065e2e.pth"
+  num_classes: 19
+
+data:
+  input_size: [1024, 1024]
+  divisor: 32
+  normalize: true
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+
+labels:
+  dataset: cityscapes
+  road_label: 0
+  road_label_mapping:
+    cityscapes: 0
+    bdd100k: 2
+    mapillary: 20
+
+post_processing:
+  confidence_threshold: 0.5
+  boundary_detection: true
+  boundary_method: canny
+  canny_low_threshold: 50
+  canny_high_threshold: 150
+  mask_smoothing: true
+  smoothing_kernel_size: 5
+
+performance:
+  enable_profiling: true
+  device: auto
+
+quality:
+  enable_quality_check: true
+  brightness_low_threshold: 20
+  brightness_high_threshold: 230
+  blur_threshold: 30.0
+  dark_threshold: 30
+  bright_threshold: 220
+  degraded_confidence_threshold: 0.1
+  unavailable_confidence_threshold: 0.05
+
+system:
+  log_level: INFO
+  error_codes:
+    success: 0
+    invalid_input: -1
+    model_load_failure: -2
+    inference_error: -3
+    unknown_error: -99

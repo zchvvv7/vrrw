@@ -3,7 +3,7 @@
 用途: 输出可行驶区域分割结果
 作者: 温涵清
 创建日期: 2026-07-16
-最后修改日期: 2026-07-16
+最后修改日期: 2026-07-17
 """
 
 import logging
@@ -13,8 +13,8 @@ from typing import Optional, Tuple
 
 import cv2
 import numpy as np
-import segmentation_models_pytorch as smp
 import torch
+from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
 
 from src.config.config import RoadSegmenterConfig
 from src.interface.schemas import RoadSegmentResult, SystemStatus
@@ -36,7 +36,7 @@ class RoadSegmenter:
             self.config = RoadSegmenterConfig()
         self.device = self._init_device()
         self.model = None
-        self.preprocess_fn = None
+        self.processor = None
         self._model_initialized = False
         self._initialize_model()
 
@@ -54,71 +54,37 @@ class RoadSegmenter:
         else:
             return torch.device("cpu")
 
-    # 初始化SegFormer模型
+    # 初始化HuggingFace SegFormer模型和图像处理器
     def _initialize_model(self) -> None:
         try:
-            self.model = smp.Segformer(
-                encoder_name=self.config.model.encoder_name,
-                encoder_weights=self.config.model.encoder_weights,
-                in_channels=3,
-                classes=self.config.model.num_classes,
+            model_name = self.config.model.model_name
+
+            self.logger.info(
+                f"Loading SegFormer model from HuggingFace: {model_name}"
             )
+
+            self.processor = SegformerImageProcessor.from_pretrained(model_name)
+            self.model = SegformerForSemanticSegmentation.from_pretrained(
+                model_name,
+                num_labels=self.config.model.num_classes,
+            )
+
             self.model.to(self.device)
             self.model.eval()
 
-            if self.config.model.checkpoint_path is not None:
-                if os.path.exists(self.config.model.checkpoint_path):
-                    self.load_checkpoint(self.config.model.checkpoint_path)
-                else:
-                    self.logger.warning(
-                        f"Checkpoint not found at {self.config.model.checkpoint_path}, "
-                        f"using randomly initialized decoder. "
-                        f"Run 'python scripts/download_checkpoint.py' to download "
-                        f"the pretrained weights."
-                    )
-
-            self.preprocess_fn = smp.encoders.get_preprocessing_fn(
-                self.config.model.encoder_name,
-                self.config.model.encoder_weights,
-            )
             self._model_initialized = True
-            self.logger.info(f"Model initialized successfully on {self.device}")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize model: {str(e)}")
-            raise RuntimeError(f"Model initialization failed: {str(e)}")
 
-    # 重映射MMSegmentation格式的权重key到SMP格式
-    def _remap_checkpoint_keys(self, state_dict: dict) -> dict:
-        new_state_dict = {}
-        for key, value in state_dict.items():
-            new_key = key
-            if key.startswith("backbone."):
-                new_key = key.replace("backbone.", "encoder.", 1)
-            elif key.startswith("decode_head."):
-                new_key = key.replace("decode_head.", "decoder.", 1)
-            elif key.startswith("seg_head."):
-                new_key = key.replace("seg_head.", "decoder.", 1)
-            new_state_dict[new_key] = value
-        return new_state_dict
-
-    # 加载预训练模型权重
-    def load_checkpoint(self, checkpoint_path: str) -> None:
-        try:
-            checkpoint = torch.load(
-                checkpoint_path, map_location=self.device, weights_only=True
+            self.logger.info(
+                f"SegFormer initialized successfully on {self.device}"
             )
-            if "state_dict" in checkpoint:
-                state_dict = checkpoint["state_dict"]
-            else:
-                state_dict = checkpoint
-            state_dict = self._remap_checkpoint_keys(state_dict)
 
-            self.model.load_state_dict(state_dict, strict=False)
-            self.model.eval()
-            self.logger.info(f"Checkpoint loaded from {checkpoint_path}")
         except Exception as e:
-            self.logger.error(f"Failed to load checkpoint: {str(e)}")
-            raise RuntimeError(f"Checkpoint loading failed: {str(e)}")
+            self.logger.error(
+                f"Failed to initialize SegFormer: {str(e)}"
+            )
+            raise RuntimeError(
+                f"Model initialization failed: {str(e)}"
+            )
 
     # 将图像填充到尺寸能被divisor整除
     def _pad_to_divisible(self, image: np.ndarray) -> Tuple[np.ndarray, int, int]:
@@ -293,76 +259,40 @@ class RoadSegmenter:
 
         try:
             height, width = frame.shape[:2]
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).astype(np.float32)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            input_height, input_width = self.config.data.input_size
-            resized_frame = cv2.resize(
-                frame_rgb, (input_width, input_height), interpolation=cv2.INTER_LINEAR
+            inputs = self.processor(
+                images=frame_rgb,
+                return_tensors="pt",
             )
-            padded, pad_height, pad_width = self._pad_to_divisible(resized_frame)
-
-            frame_preprocessed = padded / 255.0
-            if self.config.data.normalize:
-                frame_preprocessed = (
-                    frame_preprocessed - np.array(self.config.data.mean)
-                ) / np.array(self.config.data.std)
-
-            frame_preprocessed = np.transpose(
-                frame_preprocessed, (2, 0, 1)
-            ).astype(np.float32)
-            frame_tensor = torch.from_numpy(frame_preprocessed).unsqueeze(0).to(
-                self.device
-            )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
             with torch.no_grad():
-                outputs = self.model(frame_tensor)
-                logits = outputs
-                if isinstance(outputs, torch.Tensor):
-                    logits = outputs
-                else:
-                    logits = (
-                        outputs.logits
-                        if hasattr(outputs, "logits")
-                        else outputs[0]
-                    )
+                outputs = self.model(**inputs)
+                logits = outputs.logits
 
                 probs = torch.softmax(logits, dim=1)
 
                 upsampled_logits = torch.nn.functional.interpolate(
                     logits,
-                    size=(input_height + pad_height, input_width + pad_width),
+                    size=(height, width),
                     mode="bilinear",
                     align_corners=False,
                 )
                 upsampled_probs = torch.nn.functional.interpolate(
                     probs,
-                    size=(input_height + pad_height, input_width + pad_width),
+                    size=(height, width),
                     mode="bilinear",
                     align_corners=False,
                 )
 
-                if pad_height > 0:
-                    upsampled_logits = upsampled_logits[:, :, :-pad_height, :]
-                    upsampled_probs = upsampled_probs[:, :, :-pad_height, :]
-                if pad_width > 0:
-                    upsampled_logits = upsampled_logits[:, :, :, :-pad_width]
-                    upsampled_probs = upsampled_probs[:, :, :, :-pad_width]
-
                 predicted_mask = upsampled_logits.argmax(dim=1).cpu().numpy()[0]
+
                 road_confidence_map = upsampled_probs[
                     0, self.config.get_road_label()
                 ].cpu().numpy()
 
-            predicted_mask = cv2.resize(
-                predicted_mask.astype(np.float32),
-                (width, height),
-                interpolation=cv2.INTER_NEAREST,
-            ).astype(np.uint8)
-            road_confidence_map = cv2.resize(
-                road_confidence_map,
-                (width, height),
-                interpolation=cv2.INTER_LINEAR,
-            )
+            predicted_mask = predicted_mask.astype(np.uint8)
 
             road_mask = np.where(
                 predicted_mask == self.config.get_road_label(), 255, 0
@@ -453,10 +383,25 @@ class RoadSegmenter:
     # 获取模型信息
     def get_model_info(self) -> dict:
         return {
-            "encoder_name": self.config.model.encoder_name,
+            "model_name": self.config.model.model_name,
             "num_classes": self.config.model.num_classes,
             "dataset": self.config.labels.dataset,
             "road_label": self.config.get_road_label(),
             "device": str(self.device),
             "model_initialized": self._model_initialized,
         }
+
+    # 加载本地预训练权重（保留接口兼容性）
+    def load_checkpoint(self, checkpoint_path: str) -> None:
+        try:
+            checkpoint = torch.load(
+                checkpoint_path, map_location=self.device, weights_only=True
+            )
+            if "state_dict" in checkpoint:
+                checkpoint = checkpoint["state_dict"]
+            self.model.load_state_dict(checkpoint, strict=False)
+            self.model.eval()
+            self.logger.info(f"Local checkpoint loaded from {checkpoint_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to load checkpoint: {str(e)}")
+            raise RuntimeError(f"Checkpoint loading failed: {str(e)}")

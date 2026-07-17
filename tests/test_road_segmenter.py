@@ -10,8 +10,8 @@ import cv2
 import numpy as np
 import pytest
 
-from src.modules.road_segmenter import RoadSegmenter
 from src.config.config import RoadSegmenterConfig
+from src.modules.road_segmenter import RoadSegmenter
 
 
 class TestRoadSegmenter:
@@ -45,14 +45,14 @@ class TestRoadSegmenter:
         assert segmenter is not None
         assert segmenter.device is not None
         assert segmenter.model is not None
-        assert segmenter.preprocess_fn is not None
+        assert segmenter.processor is not None
         assert segmenter._model_initialized is True
 
     # 测试从配置文件初始化
     def test_init_with_config_path(self):
         segmenter = RoadSegmenter(config_path="configs/road_segmenter.yaml")
         assert segmenter is not None
-        assert segmenter.config.model.encoder_name == "mit_b2"
+        assert "segformer" in segmenter.config.model.model_name.lower()
 
     # 测试使用自定义配置初始化
     def test_init_with_custom_config(self):
@@ -64,7 +64,7 @@ class TestRoadSegmenter:
     # 测试获取模型信息
     def test_get_model_info(self, segmenter):
         info = segmenter.get_model_info()
-        assert "encoder_name" in info
+        assert "model_name" in info
         assert "num_classes" in info
         assert "dataset" in info
         assert "road_label" in info
@@ -175,7 +175,7 @@ class TestRoadSegmenter:
         assert result.error_code == -1
         assert "None" in result.error_message
 
-    # 测试空帧输入的处理"
+    # 测试空帧输入的处理
     def test_predict_empty_frame(self, segmenter):
         empty_frame = np.array([], dtype=np.uint8)
         result = segmenter.predict(empty_frame)

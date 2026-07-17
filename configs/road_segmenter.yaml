@@ -1,5 +1,6 @@
 model:
   model_name: nvidia/segformer-b2-finetuned-cityscapes-1024-1024
+  checkpoint_path: "checkpoints/segformer_mit-b2_cityscapes.pth"
   num_classes: 19
 
 data:

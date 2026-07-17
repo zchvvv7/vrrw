@@ -72,6 +72,16 @@ class RoadSegmenter:
             self.model.to(self.device)
             self.model.eval()
 
+            checkpoint_path = self.config.model.checkpoint_path
+            if checkpoint_path is not None:
+                if os.path.exists(checkpoint_path):
+                    self.load_checkpoint(checkpoint_path)
+                else:
+                    self.logger.warning(
+                        f"Checkpoint not found at {checkpoint_path}, "
+                        f"using HuggingFace pretrained weights."
+                    )
+
             self._model_initialized = True
 
             self.logger.info(
@@ -399,9 +409,14 @@ class RoadSegmenter:
             )
             if "state_dict" in checkpoint:
                 checkpoint = checkpoint["state_dict"]
-            self.model.load_state_dict(checkpoint, strict=False)
+            elif "model_state_dict" in checkpoint:
+                checkpoint = checkpoint["model_state_dict"]
+            missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint, strict=False)
             self.model.eval()
             self.logger.info(f"Local checkpoint loaded from {checkpoint_path}")
+            self.logger.info(f"Missing keys: {len(missing_keys)}")
+            self.logger.info(f"Unexpected keys: {len(unexpected_keys)}")
+
         except Exception as e:
             self.logger.error(f"Failed to load checkpoint: {str(e)}")
             raise RuntimeError(f"Checkpoint loading failed: {str(e)}")

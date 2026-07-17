@@ -1,7 +1,5 @@
 model:
-  encoder_name: mit_b2
-  encoder_weights: imagenet
-  checkpoint_path: "checkpoints/segformer_mit-b2_8x1_1024x1024_160k_cityscapes_20211206_081607-cf065e2e.pth"
+  model_name: nvidia/segformer-b2-finetuned-cityscapes-1024-1024
   num_classes: 19
 
 data:

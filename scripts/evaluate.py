@@ -3,57 +3,37 @@
 用途: 评估RoadSegmenter模块性能，计算mIoU、IoU、Boundary F-score等指标
 作者: 温涵清
 创建日期: 2026-07-16
-最后修改日期: 2026-07-16
+最后修改日期: 2026-07-17
 """
 
 import argparse
+import json
 import os
 import sys
-import json
 from typing import List, Tuple
 
-import numpy as np
 import cv2
+import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.modules.road_segmenter import RoadSegmenter
 from src.config.config import RoadSegmenterConfig
+from src.modules.road_segmenter import RoadSegmenter
 
 
 # Cityscapes数据集中道路类别的标签ID
 CITYSCAPES_ROAD_LABEL = 7
 
-
+# 计算两个二值掩码的IoU（交并比）
 def compute_iou(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
-    """
-    计算两个二值掩码的IoU（交并比）
-
-    Args:
-        pred_mask: 预测掩码
-        gt_mask: 真实掩码
-
-    Returns:
-        IoU值，范围[0, 1]
-    """
     intersection = np.logical_and(pred_mask, gt_mask).sum()
     union = np.logical_or(pred_mask, gt_mask).sum()
     return intersection / union if union > 0 else 0.0
 
 
+# 计算平均IoU（mIoU）
 def compute_miou(pred_masks: List[np.ndarray], gt_masks: List[np.ndarray],
                  num_classes: int = 2) -> float:
-    """
-    计算平均IoU（mIoU）
-
-    Args:
-        pred_masks: 预测掩码列表
-        gt_masks: 真实掩码列表
-        num_classes: 类别数量，默认为2（道路/非道路）
-
-    Returns:
-        mIoU值，范围[0, 1]
-    """
     ious = []
     for pred, gt in zip(pred_masks, gt_masks):
         for cls in range(num_classes):
@@ -64,21 +44,10 @@ def compute_miou(pred_masks: List[np.ndarray], gt_masks: List[np.ndarray],
     return np.mean(ious) if ious else 0.0
 
 
+# 计算边界F-score
 def compute_boundary_f_score(pred_mask: np.ndarray, gt_mask: np.ndarray,
                              boundary_threshold: int = 255,
                              kernel_size: int = 5) -> float:
-    """
-    计算边界F-score
-
-    Args:
-        pred_mask: 预测掩码
-        gt_mask: 真实掩码
-        boundary_threshold: 边界阈值
-        kernel_size: 膨胀核大小
-
-    Returns:
-        F-score值，范围[0, 1]
-    """
     pred_boundary = cv2.Canny(pred_mask, 50, 150)
     gt_boundary = cv2.Canny(gt_mask, 50, 150)
 
@@ -97,16 +66,8 @@ def compute_boundary_f_score(pred_mask: np.ndarray, gt_mask: np.ndarray,
     return f_score
 
 
+# 加载统一格式的数据集（images/ 和 masks/ 子目录）
 def load_images_masks_format(data_dir: str) -> Tuple[List[np.ndarray], List[np.ndarray]]:
-    """
-    加载统一格式的数据集（images/ 和 masks/ 子目录）
-
-    Args:
-        data_dir: 数据集根目录
-
-    Returns:
-        (图像列表, 掩码列表)
-    """
     images = []
     masks = []
 
@@ -128,20 +89,8 @@ def load_images_masks_format(data_dir: str) -> Tuple[List[np.ndarray], List[np.n
     return images, masks
 
 
+# 直接加载Cityscapes原始格式数据集
 def load_cityscapes_format(cityscapes_dir: str, split: str = "val") -> Tuple[List[np.ndarray], List[np.ndarray]]:
-    """
-    直接加载Cityscapes原始格式数据集
-
-    Args:
-        cityscapes_dir: Cityscapes数据集根目录
-        split: 数据集划分，可选 train/val/test
-
-    Returns:
-        (图像列表, 道路掩码列表)
-
-    Raises:
-        ValueError: Cityscapes目录不存在
-    """
     images = []
     masks = []
 
@@ -207,18 +156,8 @@ def load_cityscapes_format(cityscapes_dir: str, split: str = "val") -> Tuple[Lis
     return images, masks
 
 
+# 自动检测数据集格式
 def detect_dataset_format(data_dir: str) -> str:
-    """
-    自动检测数据集格式
-
-    Args:
-        data_dir: 数据集目录
-
-    Returns:
-        "images_masks" - 统一格式
-        "cityscapes" - Cityscapes原始格式
-        "unknown" - 未知格式
-    """
     if (os.path.exists(os.path.join(data_dir, "images")) and
             os.path.exists(os.path.join(data_dir, "masks"))):
         return "images_masks"
@@ -229,23 +168,9 @@ def detect_dataset_format(data_dir: str) -> str:
         return "unknown"
 
 
+# 根据格式加载数据集
 def load_dataset(data_dir: str, dataset_format: str = None,
                  split: str = "val") -> Tuple[List[np.ndarray], List[np.ndarray]]:
-    """
-    根据格式加载数据集
-
-    Args:
-        data_dir: 数据集目录
-        dataset_format: 数据集格式，可选 images_masks/cityscapes，
-                        为None时自动检测
-        split: 数据集划分（仅Cityscapes格式使用）
-
-    Returns:
-        (图像列表, 掩码列表)
-
-    Raises:
-        ValueError: 未知数据集格式
-    """
     if dataset_format is None:
         dataset_format = detect_dataset_format(data_dir)
 
@@ -262,19 +187,9 @@ def load_dataset(data_dir: str, dataset_format: str = None,
         )
 
 
+# 评估RoadSegmenter在给定数据集上的性能
 def evaluate_segmenter(segmenter: RoadSegmenter, images: List[np.ndarray],
                        gt_masks: List[np.ndarray]) -> dict:
-    """
-    评估RoadSegmenter在给定数据集上的性能
-
-    Args:
-        segmenter: RoadSegmenter实例
-        images: 测试图像列表
-        gt_masks: 真实掩码列表
-
-    Returns:
-        评估结果字典，包含mIoU、IoU、Boundary F-score等指标
-    """
     pred_masks = []
     ious = []
     boundary_f_scores = []
@@ -300,8 +215,8 @@ def evaluate_segmenter(segmenter: RoadSegmenter, images: List[np.ndarray],
     return results
 
 
+# 命令行入口函数
 def main():
-    """命令行入口函数"""
     parser = argparse.ArgumentParser(description="Evaluate RoadSegmenter performance")
     parser.add_argument(
         "--config",
@@ -337,10 +252,79 @@ def main():
     args = parser.parse_args()
 
     config = RoadSegmenterConfig.from_yaml(args.config)
-    segmenter = RoadSegmenter(config=config)
 
-    if args.checkpoint is not None:
-        segmenter.load_checkpoint(args.checkpoint)
+    checkpoint_path = args.checkpoint
+    if checkpoint_path is None:
+        checkpoint_dir = "checkpoints"
+        available_checkpoints = []
+        if os.path.exists(checkpoint_dir):
+            available_checkpoints = [f for f in os.listdir(checkpoint_dir)
+                                     if f.endswith(".pth")]
+
+        if available_checkpoints:
+            voc_checkpoints = [f for f in available_checkpoints if "voc" in f.lower()]
+            if voc_checkpoints:
+                checkpoint_path = os.path.join(checkpoint_dir, voc_checkpoints[0])
+            else:
+                backbone_checkpoints = [f for f in available_checkpoints if "backbone" in f.lower()]
+                if backbone_checkpoints:
+                    checkpoint_path = os.path.join(checkpoint_dir, backbone_checkpoints[0])
+
+    if checkpoint_path is not None:
+        config.model.checkpoint_path = checkpoint_path
+
+        checkpoint_name = os.path.basename(checkpoint_path).lower()
+
+        if "mit-b0" in checkpoint_name or "mit_b0" in checkpoint_name:
+            config.model.encoder_name = "mit_b0"
+
+        elif "mit-b1" in checkpoint_name or "mit_b1" in checkpoint_name:
+            config.model.encoder_name = "mit_b1"
+
+        elif "mit-b2" in checkpoint_name or "mit_b2" in checkpoint_name:
+            config.model.encoder_name = "mit_b2"
+
+        elif "mit-b3" in checkpoint_name or "mit_b3" in checkpoint_name:
+            config.model.encoder_name = "mit_b3"
+
+        elif "mit-b4" in checkpoint_name or "mit_b4" in checkpoint_name:
+            config.model.encoder_name = "mit_b4"
+
+        elif "mit-b5" in checkpoint_name or "mit_b5" in checkpoint_name:
+            config.model.encoder_name = "mit_b5"
+
+        print(f"Using encoder: {config.model.encoder_name}")
+
+
+        if "voc" in checkpoint_name:
+
+            config.model.num_classes = 21
+
+            # VOC中road对应Train ID=13
+            config.labels.road_label_mapping["cityscapes"] = 13
+
+            print("Using VOC checkpoint (21 classes)")
+
+        elif "cityscapes" in checkpoint_name:
+
+            config.model.num_classes = 19
+
+            # road = TrainID 0
+            config.labels.road_label_mapping["cityscapes"] = 0
+
+            print("Using Cityscapes checkpoint (19 classes)")
+            print("Road TrainID = 0")
+
+        else:
+
+            config.model.num_classes = 19
+            config.labels.road_label_mapping["cityscapes"] = 0
+
+            print("Using generic checkpoint")
+
+        print(f"Checkpoint: {checkpoint_path}")
+
+    segmenter = RoadSegmenter(config=config)
 
     images, gt_masks = load_dataset(args.data_dir, args.dataset_format, args.split)
     print(f"Loaded {len(images)} evaluation samples")

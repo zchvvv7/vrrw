@@ -1,20 +1,20 @@
 """
 文件名: road_segmenter.py
 用途: 输出可行驶区域分割结果
-作者:温涵清
+作者: 温涵清
 创建日期: 2026-07-16
-最后修改日期: 2026-07-16
+最后修改日期: 2026-07-17
 """
+
+import logging
+import os
+import time
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 import torch
-import time
-import logging
-import os
-from typing import Optional, Tuple
-
-import segmentation_models_pytorch as smp
+from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
 
 from src.config.config import RoadSegmenterConfig
 from src.interface.schemas import RoadSegmentResult, SystemStatus
@@ -23,15 +23,9 @@ from src.interface.schemas import RoadSegmentResult, SystemStatus
 class RoadSegmenter:
     """负责识别图像中的可行驶区域"""
 
+    # 初始化RoadSegmenter
     def __init__(self, config: Optional[RoadSegmenterConfig] = None,
                  config_path: Optional[str] = None):
-        """
-        初始化RoadSegmenter
-
-        Args:
-            config: 配置对象，若为None则从config_path加载或使用默认配置
-            config_path: 配置文件路径
-        """
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
 
@@ -44,17 +38,12 @@ class RoadSegmenter:
 
         self.device = self._init_device()
         self.model = None
-        self.preprocess_fn = None
+        self.processor = None
         self._model_initialized = False
         self._initialize_model()
 
+    # 初始化计算设备
     def _init_device(self) -> torch.device:
-        """
-        初始化计算设备
-
-        Returns:
-            torch.device实例
-        """
         device_config = self.config.performance.device
         if device_config == "auto":
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,99 +56,40 @@ class RoadSegmenter:
         else:
             return torch.device("cpu")
 
+    # 初始化HuggingFace SegFormer模型和图像处理器
     def _initialize_model(self) -> None:
-        """初始化SegFormer模型"""
         try:
-            self.model = smp.Segformer(
-                encoder_name=self.config.model.encoder_name,
-                encoder_weights=self.config.model.encoder_weights,
-                in_channels=3,
-                classes=self.config.model.num_classes,
+            model_name = self.config.model.model_name
+
+            self.logger.info(
+                f"Loading SegFormer model from HuggingFace: {model_name}"
             )
+
+            self.processor = SegformerImageProcessor.from_pretrained(model_name)
+            self.model = SegformerForSemanticSegmentation.from_pretrained(
+                model_name,
+                num_labels=self.config.model.num_classes,
+            )
+
             self.model.to(self.device)
             self.model.eval()
 
-            if self.config.model.checkpoint_path is not None:
-                if os.path.exists(self.config.model.checkpoint_path):
-                    self.load_checkpoint(self.config.model.checkpoint_path)
-                else:
-                    self.logger.warning(
-                        f"Checkpoint not found at {self.config.model.checkpoint_path}, "
-                        f"using randomly initialized decoder. "
-                        f"Run 'python scripts/download_checkpoint.py' to download "
-                        f"the pretrained weights."
-                    )
-
-            self.preprocess_fn = smp.encoders.get_preprocessing_fn(
-                self.config.model.encoder_name,
-                self.config.model.encoder_weights,
-            )
             self._model_initialized = True
-            self.logger.info(f"Model initialized successfully on {self.device}")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize model: {str(e)}")
-            raise RuntimeError(f"Model initialization failed: {str(e)}")
 
-    def _remap_checkpoint_keys(self, state_dict: dict) -> dict:
-        """
-        重映射MMSegmentation格式的权重key到SMP格式
-
-        Args:
-            state_dict: 原始权重字典
-
-        Returns:
-            重映射后的权重字典
-        """
-        new_state_dict = {}
-        for key, value in state_dict.items():
-            new_key = key
-            if key.startswith("backbone."):
-                new_key = key.replace("backbone.", "encoder.", 1)
-            elif key.startswith("decode_head."):
-                new_key = key.replace("decode_head.", "decoder.", 1)
-            elif key.startswith("seg_head."):
-                new_key = key.replace("seg_head.", "decoder.", 1)
-            new_state_dict[new_key] = value
-        return new_state_dict
-
-    def load_checkpoint(self, checkpoint_path: str) -> None:
-        """
-        加载预训练模型权重
-
-        Args:
-            checkpoint_path: 权重文件路径
-
-        Raises:
-            RuntimeError: 加载失败
-        """
-        try:
-            checkpoint = torch.load(
-                checkpoint_path, map_location=self.device, weights_only=True
+            self.logger.info(
+                f"SegFormer initialized successfully on {self.device}"
             )
-            if "state_dict" in checkpoint:
-                state_dict = checkpoint["state_dict"]
-            else:
-                state_dict = checkpoint
 
-            state_dict = self._remap_checkpoint_keys(state_dict)
-
-            self.model.load_state_dict(state_dict, strict=False)
-            self.model.eval()
-            self.logger.info(f"Checkpoint loaded from {checkpoint_path}")
         except Exception as e:
-            self.logger.error(f"Failed to load checkpoint: {str(e)}")
-            raise RuntimeError(f"Checkpoint loading failed: {str(e)}")
+            self.logger.error(
+                f"Failed to initialize SegFormer: {str(e)}"
+            )
+            raise RuntimeError(
+                f"Model initialization failed: {str(e)}"
+            )
 
+    # 将图像填充到尺寸能被divisor整除
     def _pad_to_divisible(self, image: np.ndarray) -> Tuple[np.ndarray, int, int]:
-        """
-        将图像填充到尺寸能被divisor整除
-
-        Args:
-            image: 输入图像
-
-        Returns:
-            (填充后的图像, 填充高度, 填充宽度)
-        """
         height, width = image.shape[:2]
         divisor = self.config.data.divisor
         pad_height = (divisor - height % divisor) % divisor
@@ -169,16 +99,8 @@ class RoadSegmenter:
         )
         return padded, pad_height, pad_width
 
+    # 检测掩码边界
     def _detect_boundary(self, mask: np.ndarray) -> np.ndarray:
-        """
-        检测掩码边界
-
-        Args:
-            mask: 二值掩码
-
-        Returns:
-            边界图像，若未启用边界检测则返回None
-        """
         if not self.config.post_processing.boundary_detection:
             return None
 
@@ -199,16 +121,8 @@ class RoadSegmenter:
             cv2.drawContours(boundary, contours, -1, 255, 2)
             return boundary
 
+    # 平滑掩码
     def _smooth_mask(self, mask: np.ndarray) -> np.ndarray:
-        """
-        平滑掩码
-
-        Args:
-            mask: 二值掩码
-
-        Returns:
-            平滑后的掩码
-        """
         if not self.config.post_processing.mask_smoothing:
             return mask
 
@@ -220,16 +134,8 @@ class RoadSegmenter:
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         return mask
 
+    # 验证输入帧的有效性
     def _validate_input(self, frame: np.ndarray) -> Tuple[bool, int, str]:
-        """
-        验证输入帧的有效性
-
-        Args:
-            frame: 输入图像
-
-        Returns:
-            (是否有效, 错误码, 错误信息)
-        """
         if frame is None:
             return (
                 False,
@@ -254,43 +160,19 @@ class RoadSegmenter:
             "OK"
         )
 
+    # 计算图像平均亮度
     def _calculate_brightness(self, frame: np.ndarray) -> float:
-        """
-        计算图像平均亮度
-
-        Args:
-            frame: 输入图像
-
-        Returns:
-            平均亮度值（0-255）
-        """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return float(np.mean(gray))
 
+    # 计算图像模糊度（拉普拉斯方差）
     def _calculate_blur(self, frame: np.ndarray) -> float:
-        """
-        计算图像模糊度（拉普拉斯方差）
-
-        Args:
-            frame: 输入图像
-
-        Returns:
-            模糊度值（方差）
-        """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         laplacian = cv2.Laplacian(gray, cv2.CV_64F)
         return float(np.var(laplacian))
 
+    # 检查图像质量，判断降级状态
     def _check_image_quality(self, frame: np.ndarray) -> Tuple[str, dict]:
-        """
-        检查图像质量，判断降级状态
-
-        Args:
-            frame: 输入图像
-
-        Returns:
-            (系统状态, 质量指标字典)
-        """
         if not self.config.quality.enable_quality_check:
             return SystemStatus.NORMAL, {}
 
@@ -335,18 +217,9 @@ class RoadSegmenter:
         else:
             return SystemStatus.NORMAL, quality_metrics
 
+    # 对单帧图像进行可行驶区域分割
     def predict(self, frame: np.ndarray,
                 timestamp: Optional[float] = None) -> RoadSegmentResult:
-        """
-        对单帧图像进行可行驶区域分割
-
-        Args:
-            frame: 输入图像（BGR格式）
-            timestamp: 时间戳
-
-        Returns:
-            RoadSegmentResult分割结果
-        """
         start_time = time.time()
 
         valid, error_code, error_msg = self._validate_input(frame)
@@ -396,77 +269,40 @@ class RoadSegmenter:
 
         try:
             height, width = frame.shape[:2]
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).astype(np.float32)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            input_height, input_width = self.config.data.input_size
-            resized_frame = cv2.resize(
-                frame_rgb, (input_width, input_height), interpolation=cv2.INTER_LINEAR
+            inputs = self.processor(
+                images=frame_rgb,
+                return_tensors="pt",
             )
-
-            padded, pad_height, pad_width = self._pad_to_divisible(resized_frame)
-
-            frame_preprocessed = padded / 255.0
-            if self.config.data.normalize:
-                frame_preprocessed = (
-                    frame_preprocessed - np.array(self.config.data.mean)
-                ) / np.array(self.config.data.std)
-
-            frame_preprocessed = np.transpose(
-                frame_preprocessed, (2, 0, 1)
-            ).astype(np.float32)
-            frame_tensor = torch.from_numpy(frame_preprocessed).unsqueeze(0).to(
-                self.device
-            )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
             with torch.no_grad():
-                outputs = self.model(frame_tensor)
-                logits = outputs
-                if isinstance(outputs, torch.Tensor):
-                    logits = outputs
-                else:
-                    logits = (
-                        outputs.logits
-                        if hasattr(outputs, "logits")
-                        else outputs[0]
-                    )
+                outputs = self.model(**inputs)
+                logits = outputs.logits
 
                 probs = torch.softmax(logits, dim=1)
 
                 upsampled_logits = torch.nn.functional.interpolate(
                     logits,
-                    size=(input_height + pad_height, input_width + pad_width),
+                    size=(height, width),
                     mode="bilinear",
                     align_corners=False,
                 )
                 upsampled_probs = torch.nn.functional.interpolate(
                     probs,
-                    size=(input_height + pad_height, input_width + pad_width),
+                    size=(height, width),
                     mode="bilinear",
                     align_corners=False,
                 )
 
-                if pad_height > 0:
-                    upsampled_logits = upsampled_logits[:, :, :-pad_height, :]
-                    upsampled_probs = upsampled_probs[:, :, :-pad_height, :]
-                if pad_width > 0:
-                    upsampled_logits = upsampled_logits[:, :, :, :-pad_width]
-                    upsampled_probs = upsampled_probs[:, :, :, :-pad_width]
-
                 predicted_mask = upsampled_logits.argmax(dim=1).cpu().numpy()[0]
+
                 road_confidence_map = upsampled_probs[
                     0, self.config.get_road_label()
                 ].cpu().numpy()
 
-            predicted_mask = cv2.resize(
-                predicted_mask.astype(np.float32),
-                (width, height),
-                interpolation=cv2.INTER_NEAREST,
-            ).astype(np.uint8)
-            road_confidence_map = cv2.resize(
-                road_confidence_map,
-                (width, height),
-                interpolation=cv2.INTER_LINEAR,
-            )
+            predicted_mask = predicted_mask.astype(np.uint8)
 
             road_mask = np.where(
                 predicted_mask == self.config.get_road_label(), 255, 0
@@ -554,18 +390,28 @@ class RoadSegmenter:
                 quality_metrics={},
             )
 
+    # 获取模型信息
     def get_model_info(self) -> dict:
-        """
-        获取模型信息
-
-        Returns:
-            模型信息字典
-        """
         return {
-            "encoder_name": self.config.model.encoder_name,
+            "model_name": self.config.model.model_name,
             "num_classes": self.config.model.num_classes,
             "dataset": self.config.labels.dataset,
             "road_label": self.config.get_road_label(),
             "device": str(self.device),
             "model_initialized": self._model_initialized,
         }
+
+    # 加载本地预训练权重（保留接口兼容性）
+    def load_checkpoint(self, checkpoint_path: str) -> None:
+        try:
+            checkpoint = torch.load(
+                checkpoint_path, map_location=self.device, weights_only=True
+            )
+            if "state_dict" in checkpoint:
+                checkpoint = checkpoint["state_dict"]
+            self.model.load_state_dict(checkpoint, strict=False)
+            self.model.eval()
+            self.logger.info(f"Local checkpoint loaded from {checkpoint_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to load checkpoint: {str(e)}")
+            raise RuntimeError(f"Checkpoint loading failed: {str(e)}")

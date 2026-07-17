@@ -25,7 +25,6 @@ class ModelConfig:
 class DataConfig:
     """数据配置类"""
 
-    # 输入图像尺寸 [height, width]
     input_size: List[int] = field(default_factory=lambda: [512, 1024])
     divisor: int = 32
     normalize: bool = True
@@ -87,8 +86,7 @@ class QualityConfig:
 class SystemConfig:
     """系统配置类"""
 
-    # 日志级别: DEBUG, INFO, WARNING, ERROR
-    log_level: str = "INFO"
+    log_level: str = "INFO"  # 日志级别: DEBUG, INFO, WARNING, ERROR
     error_codes: Dict[str, int] = field(
         default_factory=lambda: {
             "success": 0,
@@ -112,32 +110,16 @@ class RoadSegmenterConfig:
     quality: QualityConfig = field(default_factory=QualityConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
 
+    # 从YAML文件加载配置
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "RoadSegmenterConfig":
-        """
-        从YAML文件加载配置
-
-        Args:
-            yaml_path: YAML配置文件路径
-
-        Returns:
-            RoadSegmenterConfig实例
-        """
         with open(yaml_path, "r", encoding="utf-8") as f:
             config_dict = yaml.safe_load(f)
         return cls.from_dict(config_dict)
 
+    # 从字典加载配置
     @classmethod
     def from_dict(cls, config_dict: dict) -> "RoadSegmenterConfig":
-        """
-        从字典加载配置
-
-        Args:
-            config_dict: 配置字典
-
-        Returns:
-            RoadSegmenterConfig实例
-        """
         return cls(
             model=ModelConfig(**config_dict.get("model", {})),
             data=DataConfig(**config_dict.get("data", {})),
@@ -150,13 +132,8 @@ class RoadSegmenterConfig:
             system=SystemConfig(**config_dict.get("system", {})),
         )
 
+    # 获取当前数据集的道路类别标签
     def get_road_label(self) -> int:
-        """
-        获取当前数据集的道路类别标签
-
-        Returns:
-            道路类别标签ID
-        """
         return self.labels.road_label_mapping.get(
             self.labels.dataset, self.labels.road_label
         )

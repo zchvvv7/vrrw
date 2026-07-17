@@ -34,6 +34,8 @@ class UnknownRegion:
 
 
 class SystemStatus:
+    """表示系统状态"""
+
     NORMAL = "normal"
     DEGRADED = "degraded"
     UNAVAILABLE = "unavailable"

@@ -211,7 +211,6 @@ class TestRoadSegmenter:
     def test_dataset_label_mapping(self):
         datasets = ["cityscapes", "bdd100k", "mapillary"]
         expected_labels = [0, 2, 20]
-
         for dataset, expected_label in zip(datasets, expected_labels):
             config = RoadSegmenterConfig()
             config.labels.dataset = dataset
@@ -244,7 +243,6 @@ class TestRoadSegmenter:
         frame = np.zeros((height, width, 3), dtype=np.uint8)
         frame[:int(height * 0.6), :] = [128, 128, 128]
         frame[int(height * 0.6):, :] = [200, 200, 200]
-
         result = segmenter.predict(frame)
         assert result.is_successful
         road_pixels = np.sum(result.mask == 255)

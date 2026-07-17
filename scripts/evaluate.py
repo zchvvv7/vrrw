@@ -50,7 +50,6 @@ def compute_boundary_f_score(pred_mask: np.ndarray, gt_mask: np.ndarray,
                              kernel_size: int = 5) -> float:
     pred_boundary = cv2.Canny(pred_mask, 50, 150)
     gt_boundary = cv2.Canny(gt_mask, 50, 150)
-
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
     gt_boundary_dilated = cv2.dilate(gt_boundary, kernel, iterations=1)
 
@@ -70,7 +69,6 @@ def compute_boundary_f_score(pred_mask: np.ndarray, gt_mask: np.ndarray,
 def load_images_masks_format(data_dir: str) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     images = []
     masks = []
-
     image_dir = os.path.join(data_dir, "images")
     mask_dir = os.path.join(data_dir, "masks")
 
@@ -78,14 +76,12 @@ def load_images_masks_format(data_dir: str) -> Tuple[List[np.ndarray], List[np.n
         if filename.endswith((".png", ".jpg", ".jpeg")):
             img_path = os.path.join(image_dir, filename)
             mask_path = os.path.join(mask_dir, filename)
-
             if os.path.exists(mask_path):
                 img = cv2.imread(img_path)
                 mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
                 if img is not None and mask is not None:
                     images.append(img)
                     masks.append(mask)
-
     return images, masks
 
 
@@ -93,10 +89,8 @@ def load_images_masks_format(data_dir: str) -> Tuple[List[np.ndarray], List[np.n
 def load_cityscapes_format(cityscapes_dir: str, split: str = "val") -> Tuple[List[np.ndarray], List[np.ndarray]]:
     images = []
     masks = []
-
     image_dir = os.path.join(cityscapes_dir, "leftImg8bit", split)
     gt_dir = os.path.join(cityscapes_dir, "gtFine", split)
-
     if not os.path.exists(image_dir) or not os.path.exists(gt_dir):
         raise ValueError(
             f"Cityscapes directories not found: {image_dir} or {gt_dir}"
@@ -105,19 +99,15 @@ def load_cityscapes_format(cityscapes_dir: str, split: str = "val") -> Tuple[Lis
     for city in sorted(os.listdir(image_dir)):
         city_image_dir = os.path.join(image_dir, city)
         city_gt_dir = os.path.join(gt_dir, city)
-
         if not os.path.isdir(city_image_dir) or not os.path.isdir(city_gt_dir):
             continue
-
         for img_file in sorted(os.listdir(city_image_dir)):
             if not img_file.endswith("_leftImg8bit.png"):
                 continue
-
             prefix = img_file.replace("_leftImg8bit.png", "")
             img_path = os.path.join(city_image_dir, img_file)
             label_id_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_labelIds.png")
             polygon_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_polygons.json")
-
             img = cv2.imread(img_path)
             if img is None:
                 continue
@@ -328,7 +318,6 @@ def main():
 
     images, gt_masks = load_dataset(args.data_dir, args.dataset_format, args.split)
     print(f"Loaded {len(images)} evaluation samples")
-
     results = evaluate_segmenter(segmenter, images, gt_masks)
 
     print("\nEvaluation Results:")

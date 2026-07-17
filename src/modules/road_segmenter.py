@@ -28,14 +28,12 @@ class RoadSegmenter:
                  config_path: Optional[str] = None):
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
-
         if config is not None:
             self.config = config
         elif config_path is not None:
             self.config = RoadSegmenterConfig.from_yaml(config_path)
         else:
             self.config = RoadSegmenterConfig()
-
         self.device = self._init_device()
         self.model = None
         self.processor = None
@@ -103,7 +101,6 @@ class RoadSegmenter:
     def _detect_boundary(self, mask: np.ndarray) -> np.ndarray:
         if not self.config.post_processing.boundary_detection:
             return None
-
         method = self.config.post_processing.boundary_method
         if method == "canny":
             low = self.config.post_processing.canny_low_threshold
@@ -125,7 +122,6 @@ class RoadSegmenter:
     def _smooth_mask(self, mask: np.ndarray) -> np.ndarray:
         if not self.config.post_processing.mask_smoothing:
             return mask
-
         kernel_size = self.config.post_processing.smoothing_kernel_size
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
@@ -175,15 +171,12 @@ class RoadSegmenter:
     def _check_image_quality(self, frame: np.ndarray) -> Tuple[str, dict]:
         if not self.config.quality.enable_quality_check:
             return SystemStatus.NORMAL, {}
-
         brightness = self._calculate_brightness(frame)
         blur = self._calculate_blur(frame)
-
         quality_metrics = {
             "brightness": brightness,
             "blur": blur,
         }
-
         degraded_reasons = []
         unavailable_reasons = []
 
@@ -203,7 +196,6 @@ class RoadSegmenter:
             degraded_reasons.append(
                 f"high_brightness (brightness={brightness:.1f})"
             )
-
         if blur < self.config.quality.blur_threshold:
             degraded_reasons.append(f"blurry (blur={blur:.1f})")
 
@@ -221,7 +213,6 @@ class RoadSegmenter:
     def predict(self, frame: np.ndarray,
                 timestamp: Optional[float] = None) -> RoadSegmentResult:
         start_time = time.time()
-
         valid, error_code, error_msg = self._validate_input(frame)
         if not valid:
             height, width = (
@@ -242,7 +233,6 @@ class RoadSegmenter:
                 system_status=SystemStatus.UNAVAILABLE,
                 quality_metrics={},
             )
-
         system_status, quality_metrics = self._check_image_quality(frame)
 
         if system_status == SystemStatus.UNAVAILABLE:

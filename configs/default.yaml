@@ -5,9 +5,8 @@ input:
 output:
   video_path: "outputs/visualization/demo_result.mp4"
 
-risk:
-  warning_distance: 15.0
-  danger_distance: 6.0
+road_segmenter:
+  config_path: "configs/road_segmenter.yaml"
 
 system:
   show_window: false

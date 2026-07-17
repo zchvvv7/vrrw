@@ -70,7 +70,6 @@ def convert_label_ids_to_road_mask(label_ids: np.ndarray) -> np.ndarray:
 def parse_cityscapes_polygon(json_path: str) -> Tuple[np.ndarray, int, int]:
     with open(json_path, "r") as f:
         data = json.load(f)
-
     height = data["imgHeight"]
     width = data["imgWidth"]
     mask = np.zeros((height, width), dtype=np.uint8)
@@ -90,13 +89,10 @@ def process_cityscapes_split(cityscapes_dir: str, split: str,
                              output_dir: str) -> int:
     image_dir = os.path.join(cityscapes_dir, "leftImg8bit", split)
     gt_dir = os.path.join(cityscapes_dir, "gtFine", split)
-
     output_image_dir = os.path.join(output_dir, "images")
     output_mask_dir = os.path.join(output_dir, "masks")
-
     os.makedirs(output_image_dir, exist_ok=True)
     os.makedirs(output_mask_dir, exist_ok=True)
-
     processed_count = 0
     skipped_count = 0
     error_count = 0
@@ -126,7 +122,6 @@ def process_cityscapes_split(cityscapes_dir: str, split: str,
         for img_file in img_files:
             prefix = img_file.replace("_leftImg8bit.png", "")
             img_path = os.path.join(city_image_dir, img_file)
-
             label_id_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_labelIds.png")
             polygon_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_polygons.json")
 

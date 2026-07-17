@@ -60,7 +60,6 @@ def download_checkpoint(model_name: str, save_dir: str = "checkpoints") -> str:
             f"Unknown model: {model_name}. "
             f"Available models: {list(CHECKPOINT_URLS.keys())}"
         )
-
     os.makedirs(save_dir, exist_ok=True)
     save_path = os.path.join(save_dir, config["filename"])
 
@@ -143,7 +142,6 @@ def main():
         help="Directory to save the checkpoint"
     )
     args = parser.parse_args()
-
     download_checkpoint(args.model, args.save_dir)
 
 

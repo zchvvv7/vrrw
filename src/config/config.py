@@ -18,6 +18,7 @@ class ModelConfig:
     model_name: str = (
         "nvidia/segformer-b2-finetuned-cityscapes-1024-1024"
     )
+    checkpoint_path: Optional[str] = None
     num_classes: int = 19
 
 

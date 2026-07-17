@@ -1,20 +1,20 @@
 """
 文件名: road_segmenter.py
 用途: 输出可行驶区域分割结果
-作者:温涵清
+作者: 温涵清
 创建日期: 2026-07-16
 最后修改日期: 2026-07-16
 """
 
-import cv2
-import numpy as np
-import torch
-import time
 import logging
 import os
+import time
 from typing import Optional, Tuple
 
+import cv2
+import numpy as np
 import segmentation_models_pytorch as smp
+import torch
 
 from src.config.config import RoadSegmenterConfig
 from src.interface.schemas import RoadSegmentResult, SystemStatus
@@ -23,38 +23,25 @@ from src.interface.schemas import RoadSegmentResult, SystemStatus
 class RoadSegmenter:
     """负责识别图像中的可行驶区域"""
 
+    # 初始化RoadSegmenter
     def __init__(self, config: Optional[RoadSegmenterConfig] = None,
                  config_path: Optional[str] = None):
-        """
-        初始化RoadSegmenter
-
-        Args:
-            config: 配置对象，若为None则从config_path加载或使用默认配置
-            config_path: 配置文件路径
-        """
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
-
         if config is not None:
             self.config = config
         elif config_path is not None:
             self.config = RoadSegmenterConfig.from_yaml(config_path)
         else:
             self.config = RoadSegmenterConfig()
-
         self.device = self._init_device()
         self.model = None
         self.preprocess_fn = None
         self._model_initialized = False
         self._initialize_model()
 
+    # 初始化计算设备
     def _init_device(self) -> torch.device:
-        """
-        初始化计算设备
-
-        Returns:
-            torch.device实例
-        """
         device_config = self.config.performance.device
         if device_config == "auto":
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,8 +54,8 @@ class RoadSegmenter:
         else:
             return torch.device("cpu")
 
+    # 初始化SegFormer模型
     def _initialize_model(self) -> None:
-        """初始化SegFormer模型"""
         try:
             self.model = smp.Segformer(
                 encoder_name=self.config.model.encoder_name,
@@ -100,16 +87,8 @@ class RoadSegmenter:
             self.logger.error(f"Failed to initialize model: {str(e)}")
             raise RuntimeError(f"Model initialization failed: {str(e)}")
 
+    # 重映射MMSegmentation格式的权重key到SMP格式
     def _remap_checkpoint_keys(self, state_dict: dict) -> dict:
-        """
-        重映射MMSegmentation格式的权重key到SMP格式
-
-        Args:
-            state_dict: 原始权重字典
-
-        Returns:
-            重映射后的权重字典
-        """
         new_state_dict = {}
         for key, value in state_dict.items():
             new_key = key
@@ -122,16 +101,8 @@ class RoadSegmenter:
             new_state_dict[new_key] = value
         return new_state_dict
 
+    # 加载预训练模型权重
     def load_checkpoint(self, checkpoint_path: str) -> None:
-        """
-        加载预训练模型权重
-
-        Args:
-            checkpoint_path: 权重文件路径
-
-        Raises:
-            RuntimeError: 加载失败
-        """
         try:
             checkpoint = torch.load(
                 checkpoint_path, map_location=self.device, weights_only=True
@@ -140,7 +111,6 @@ class RoadSegmenter:
                 state_dict = checkpoint["state_dict"]
             else:
                 state_dict = checkpoint
-
             state_dict = self._remap_checkpoint_keys(state_dict)
 
             self.model.load_state_dict(state_dict, strict=False)
@@ -150,16 +120,8 @@ class RoadSegmenter:
             self.logger.error(f"Failed to load checkpoint: {str(e)}")
             raise RuntimeError(f"Checkpoint loading failed: {str(e)}")
 
+    # 将图像填充到尺寸能被divisor整除
     def _pad_to_divisible(self, image: np.ndarray) -> Tuple[np.ndarray, int, int]:
-        """
-        将图像填充到尺寸能被divisor整除
-
-        Args:
-            image: 输入图像
-
-        Returns:
-            (填充后的图像, 填充高度, 填充宽度)
-        """
         height, width = image.shape[:2]
         divisor = self.config.data.divisor
         pad_height = (divisor - height % divisor) % divisor
@@ -169,19 +131,10 @@ class RoadSegmenter:
         )
         return padded, pad_height, pad_width
 
+    # 检测掩码边界
     def _detect_boundary(self, mask: np.ndarray) -> np.ndarray:
-        """
-        检测掩码边界
-
-        Args:
-            mask: 二值掩码
-
-        Returns:
-            边界图像，若未启用边界检测则返回None
-        """
         if not self.config.post_processing.boundary_detection:
             return None
-
         method = self.config.post_processing.boundary_method
         if method == "canny":
             low = self.config.post_processing.canny_low_threshold
@@ -199,19 +152,10 @@ class RoadSegmenter:
             cv2.drawContours(boundary, contours, -1, 255, 2)
             return boundary
 
+    # 平滑掩码
     def _smooth_mask(self, mask: np.ndarray) -> np.ndarray:
-        """
-        平滑掩码
-
-        Args:
-            mask: 二值掩码
-
-        Returns:
-            平滑后的掩码
-        """
         if not self.config.post_processing.mask_smoothing:
             return mask
-
         kernel_size = self.config.post_processing.smoothing_kernel_size
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
@@ -220,16 +164,8 @@ class RoadSegmenter:
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         return mask
 
+    # 验证输入帧的有效性
     def _validate_input(self, frame: np.ndarray) -> Tuple[bool, int, str]:
-        """
-        验证输入帧的有效性
-
-        Args:
-            frame: 输入图像
-
-        Returns:
-            (是否有效, 错误码, 错误信息)
-        """
         if frame is None:
             return (
                 False,
@@ -254,54 +190,27 @@ class RoadSegmenter:
             "OK"
         )
 
+    # 计算图像平均亮度
     def _calculate_brightness(self, frame: np.ndarray) -> float:
-        """
-        计算图像平均亮度
-
-        Args:
-            frame: 输入图像
-
-        Returns:
-            平均亮度值（0-255）
-        """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return float(np.mean(gray))
 
+    # 计算图像模糊度（拉普拉斯方差）
     def _calculate_blur(self, frame: np.ndarray) -> float:
-        """
-        计算图像模糊度（拉普拉斯方差）
-
-        Args:
-            frame: 输入图像
-
-        Returns:
-            模糊度值（方差）
-        """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         laplacian = cv2.Laplacian(gray, cv2.CV_64F)
         return float(np.var(laplacian))
 
+    # 检查图像质量，判断降级状态
     def _check_image_quality(self, frame: np.ndarray) -> Tuple[str, dict]:
-        """
-        检查图像质量，判断降级状态
-
-        Args:
-            frame: 输入图像
-
-        Returns:
-            (系统状态, 质量指标字典)
-        """
         if not self.config.quality.enable_quality_check:
             return SystemStatus.NORMAL, {}
-
         brightness = self._calculate_brightness(frame)
         blur = self._calculate_blur(frame)
-
         quality_metrics = {
             "brightness": brightness,
             "blur": blur,
         }
-
         degraded_reasons = []
         unavailable_reasons = []
 
@@ -321,7 +230,6 @@ class RoadSegmenter:
             degraded_reasons.append(
                 f"high_brightness (brightness={brightness:.1f})"
             )
-
         if blur < self.config.quality.blur_threshold:
             degraded_reasons.append(f"blurry (blur={blur:.1f})")
 
@@ -335,20 +243,10 @@ class RoadSegmenter:
         else:
             return SystemStatus.NORMAL, quality_metrics
 
+    # 对单帧图像进行可行驶区域分割
     def predict(self, frame: np.ndarray,
                 timestamp: Optional[float] = None) -> RoadSegmentResult:
-        """
-        对单帧图像进行可行驶区域分割
-
-        Args:
-            frame: 输入图像（BGR格式）
-            timestamp: 时间戳
-
-        Returns:
-            RoadSegmentResult分割结果
-        """
         start_time = time.time()
-
         valid, error_code, error_msg = self._validate_input(frame)
         if not valid:
             height, width = (
@@ -369,7 +267,6 @@ class RoadSegmenter:
                 system_status=SystemStatus.UNAVAILABLE,
                 quality_metrics={},
             )
-
         system_status, quality_metrics = self._check_image_quality(frame)
 
         if system_status == SystemStatus.UNAVAILABLE:
@@ -402,7 +299,6 @@ class RoadSegmenter:
             resized_frame = cv2.resize(
                 frame_rgb, (input_width, input_height), interpolation=cv2.INTER_LINEAR
             )
-
             padded, pad_height, pad_width = self._pad_to_divisible(resized_frame)
 
             frame_preprocessed = padded / 255.0
@@ -554,13 +450,8 @@ class RoadSegmenter:
                 quality_metrics={},
             )
 
+    # 获取模型信息
     def get_model_info(self) -> dict:
-        """
-        获取模型信息
-
-        Returns:
-            模型信息字典
-        """
         return {
             "encoder_name": self.config.model.encoder_name,
             "num_classes": self.config.model.num_classes,

@@ -11,10 +11,10 @@ import yaml
 import cv2
 
 from src.interface.schemas import FrameResult
-from src.modules.known_detector import KnownDetector
-from src.modules.risk_evaluator import RiskEvaluator
 from src.modules.road_segmenter import RoadSegmenter
+from src.modules.known_detector import KnownDetector
 from src.modules.unknown_detector import UnknownDetector
+from src.modules.risk_evaluator import RiskEvaluator
 from src.utils.result_visualizer import draw_result
 
 

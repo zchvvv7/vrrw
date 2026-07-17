@@ -59,35 +59,17 @@ CITYSCAPES_LABELS: Dict[int, str] = {
 ROAD_LABELS = [7]
 
 
+# 将Cityscapes标签ID图像转换为二值道路掩码
 def convert_label_ids_to_road_mask(label_ids: np.ndarray) -> np.ndarray:
-    """
-    将Cityscapes标签ID图像转换为二值道路掩码
-
-    Args:
-        label_ids: 标签ID图像
-
-    Returns:
-        二值掩码，道路区域为255，非道路区域为0
-    """
     mask = np.zeros(label_ids.shape, dtype=np.uint8)
     for road_label in ROAD_LABELS:
         mask[label_ids == road_label] = 255
     return mask
 
-
+# 解析Cityscapes多边形标注文件
 def parse_cityscapes_polygon(json_path: str) -> Tuple[np.ndarray, int, int]:
-    """
-    解析Cityscapes多边形标注文件
-
-    Args:
-        json_path: 多边形标注JSON文件路径
-
-    Returns:
-        (道路掩码, 高度, 宽度)
-    """
     with open(json_path, "r") as f:
         data = json.load(f)
-
     height = data["imgHeight"]
     width = data["imgWidth"]
     mask = np.zeros((height, width), dtype=np.uint8)
@@ -101,48 +83,30 @@ def parse_cityscapes_polygon(json_path: str) -> Tuple[np.ndarray, int, int]:
 
     return mask, height, width
 
-
+# 处理Cityscapes数据集中的一个划分（train/val/test）
 def process_cityscapes_split(cityscapes_dir: str, split: str,
                              output_dir: str) -> int:
-    """
-    处理Cityscapes数据集中的一个划分（train/val/test）
-
-    Args:
-        cityscapes_dir: Cityscapes数据集根目录
-        split: 数据集划分，可选 train/val/test
-        output_dir: 输出目录
-
-    Returns:
-        处理的样本数量
-    """
     image_dir = os.path.join(cityscapes_dir, "leftImg8bit", split)
     gt_dir = os.path.join(cityscapes_dir, "gtFine", split)
-
     output_image_dir = os.path.join(output_dir, "images")
     output_mask_dir = os.path.join(output_dir, "masks")
-
     os.makedirs(output_image_dir, exist_ok=True)
     os.makedirs(output_mask_dir, exist_ok=True)
-
     processed_count = 0
 
     for city in sorted(os.listdir(image_dir)):
         city_image_dir = os.path.join(image_dir, city)
         city_gt_dir = os.path.join(gt_dir, city)
-
         if not os.path.isdir(city_image_dir) or not os.path.isdir(city_gt_dir):
             continue
 
         for img_file in sorted(os.listdir(city_image_dir)):
             if not img_file.endswith("_leftImg8bit.png"):
                 continue
-
             prefix = img_file.replace("_leftImg8bit.png", "")
             img_path = os.path.join(city_image_dir, img_file)
-
             label_id_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_labelIds.png")
             polygon_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_polygons.json")
-
             img = cv2.imread(img_path)
             if img is None:
                 continue
@@ -165,17 +129,14 @@ def process_cityscapes_split(cityscapes_dir: str, split: str,
 
             output_img_path = os.path.join(output_image_dir, f"{prefix}.png")
             output_mask_path = os.path.join(output_mask_dir, f"{prefix}.png")
-
             cv2.imwrite(output_img_path, img)
             cv2.imwrite(output_mask_path, mask)
-
             processed_count += 1
 
     return processed_count
 
-
+# 命令行入口函数
 def main():
-    """命令行入口函数"""
     parser = argparse.ArgumentParser(
         description="Convert Cityscapes dataset to images/masks format"
     )

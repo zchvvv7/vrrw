@@ -6,9 +6,9 @@
 最后修改日期: 2026-07-16
 """
 
+import argparse
 import os
 import urllib.request
-import argparse
 
 
 # 预训练模型权重下载地址映射
@@ -26,36 +26,20 @@ CHECKPOINT_URLS = {
 }
 
 
+# 从指定URL下载预训练模型权重
 def download_checkpoint(model_name: str, save_dir: str = "checkpoints") -> str:
-    """
-    从指定URL下载预训练模型权重
-
-    Args:
-        model_name: 模型名称，必须在CHECKPOINT_URLS中存在
-        save_dir: 保存目录，默认为"checkpoints"
-
-    Returns:
-        下载文件的完整路径
-
-    Raises:
-        ValueError: 未知模型名称
-        Exception: 下载失败
-    """
     url = CHECKPOINT_URLS.get(model_name)
     if url is None:
         raise ValueError(
             f"Unknown model: {model_name}. "
             f"Available models: {list(CHECKPOINT_URLS.keys())}"
         )
-
     os.makedirs(save_dir, exist_ok=True)
     filename = os.path.basename(url)
     save_path = os.path.join(save_dir, filename)
-
     if os.path.exists(save_path):
         print(f"Checkpoint already exists: {save_path}")
         return save_path
-
     print(f"Downloading checkpoint from {url}...")
     try:
         urllib.request.urlretrieve(url, save_path)
@@ -66,8 +50,8 @@ def download_checkpoint(model_name: str, save_dir: str = "checkpoints") -> str:
         raise
 
 
+# 命令行入口函数
 def main():
-    """命令行入口函数"""
     parser = argparse.ArgumentParser(description="Download MMSegmentation checkpoint")
     parser.add_argument(
         "--model",
@@ -82,7 +66,6 @@ def main():
         help="Directory to save the checkpoint"
     )
     args = parser.parse_args()
-
     download_checkpoint(args.model, args.save_dir)
 
 

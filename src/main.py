@@ -13,6 +13,7 @@ import cv2
 
 from src.interface.schemas import FrameResult
 from src.modules.road_segmenter import RoadSegmenter
+from src.modules.unknown_detector import UnknownDetector
 from src.utils.result_visualizer import draw_result
 
 
@@ -28,6 +29,9 @@ def run_pipeline(config_path: str) -> None:
     config = load_config(config_path)
     road_segmenter = RoadSegmenter(
         config_path=config["road_segmenter"]["config_path"],
+    )
+    unknown_detector = UnknownDetector(
+        config=config["unknown_detector"],
     )
     capture = cv2.VideoCapture(config["input"]["video_path"])
     if not capture.isOpened():
@@ -55,11 +59,16 @@ def run_pipeline(config_path: str) -> None:
             frame_id += 1
             continue
         road_result = road_segmenter.predict(frame)
+        unknown_regions = unknown_detector.predict(
+            frame=frame,
+            road_mask=road_result.mask,
+            confidence_map=road_result.confidence_map,
+        )
         result = FrameResult(
             frame_id=frame_id,
             road_mask=road_result.mask,
             known_objects=[],
-            unknown_regions=[],
+            unknown_regions=unknown_regions,
             risk_level=road_result.system_status,
             major_reason=road_result.error_message,
         )

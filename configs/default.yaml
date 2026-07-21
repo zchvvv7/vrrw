@@ -4,6 +4,8 @@ input:
 
 output:
   video_path: "outputs/visualization/demo_result.mp4"
+  json_path: "outputs/results/demo_result.json"
+  log_path: "outputs/logs/run.log"
 
 road_segmenter:
   config_path: "configs/road_segmenter.yaml"

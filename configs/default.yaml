@@ -8,5 +8,13 @@ output:
 road_segmenter:
   config_path: "configs/road_segmenter.yaml"
 
+unknown_detector:
+  min_area: 600
+  max_area: 40000
+  close_kernel_size: 35
+  edge_margin_kernel_size: 31
+  min_score: 0.35
+  lower_roi_ratio: 0.35
+
 system:
   show_window: false

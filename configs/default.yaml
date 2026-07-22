@@ -16,17 +16,12 @@ road_segmenter:
   config_path: "configs/road_segmenter.yaml"
 
 unknown_detector:
-  method: "depth_baseline"
-  encoder: "vits"
-  checkpoint_path: "checkpoints/depth_anything_v2_vits.pth"
-
   min_area: 600
   max_area: 40000
+  close_kernel_size: 35
+  edge_margin_kernel_size: 31
   min_score: 0.35
   lower_roi_ratio: 0.35
-
-  depth_gradient_threshold: 0.18
-  depth_close_percentile: 70
 
 system:
   show_window: false

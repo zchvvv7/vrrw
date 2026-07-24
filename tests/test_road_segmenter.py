@@ -3,7 +3,7 @@
 用途: 测试RoadSegmenter模块
 作者: 温涵清
 创建日期: 2026-07-16
-最后修改日期: 2026-07-16
+最后修改日期: 2026-07-24
 """
 
 import cv2
@@ -250,3 +250,58 @@ class TestRoadSegmenter:
         assert 0.0 <= road_ratio <= 1.0, (
             f"Invalid road pixel ratio: {road_ratio}"
         )
+
+    # 测试轮廓平滑启用的情况
+    def test_contour_smoothing_enabled(self, test_frame):
+        config = RoadSegmenterConfig()
+        config.post_processing.contour_smoothing = True
+        segmenter = RoadSegmenter(config=config)
+        result = segmenter.predict(test_frame)
+        assert result.mask is not None
+        assert result.mask.shape == (480, 640)
+        assert result.mask.dtype == np.uint8
+
+    # 测试轮廓平滑禁用的情况
+    def test_contour_smoothing_disabled(self, test_frame):
+        config = RoadSegmenterConfig()
+        config.post_processing.contour_smoothing = False
+        segmenter = RoadSegmenter(config=config)
+        result = segmenter.predict(test_frame)
+        assert result.mask is not None
+        assert result.mask.shape == (480, 640)
+
+    # 测试轮廓平滑对mask边缘的影响
+    def test_contour_smoothing_effect(self):
+        height, width = 480, 640
+        mask = np.zeros((height, width), dtype=np.uint8)
+        cv2.rectangle(mask, (100, 100), (540, 380), 255, -1)
+        cv2.rectangle(mask, (200, 200), (440, 280), 0, -1)
+
+        config = RoadSegmenterConfig()
+        config.post_processing.mask_smoothing = True
+        config.post_processing.contour_smoothing = True
+        segmenter = RoadSegmenter(config=config)
+
+        smoothed_mask = segmenter._smooth_mask(mask.copy())
+        assert smoothed_mask.shape == mask.shape
+        assert smoothed_mask.dtype == np.uint8
+
+        contours_original, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours_smoothed, _ = cv2.findContours(smoothed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        assert len(contours_original) > 0
+        assert len(contours_smoothed) > 0
+
+    # 测试轮廓平滑的配置参数是否正确加载
+    def test_contour_smoothing_config(self):
+        config = RoadSegmenterConfig()
+        config.post_processing.contour_smoothing = True
+        config.post_processing.smoothing_factor = 10.0
+        config.post_processing.spline_order = 3
+        config.post_processing.resample_points = 300
+
+        segmenter = RoadSegmenter(config=config)
+        assert segmenter.config.post_processing.contour_smoothing is True
+        assert segmenter.config.post_processing.smoothing_factor == 10.0
+        assert segmenter.config.post_processing.spline_order == 3
+        assert segmenter.config.post_processing.resample_points == 300

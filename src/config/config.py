@@ -3,7 +3,7 @@
 用途: 配置管理类，支持YAML配置加载和参数管理
 作者: 温涵清
 创建日期: 2026-07-16
-最后修改日期: 2026-07-17
+最后修改日期: 2026-07-24
 """
 
 from dataclasses import dataclass, field
@@ -56,6 +56,10 @@ class PostProcessingConfig:
     canny_high_threshold: int = 150
     mask_smoothing: bool = True
     smoothing_kernel_size: int = 5
+    contour_smoothing: bool = True
+    smoothing_factor: float = 5.0
+    spline_order: int = 3
+    resample_points: int = 200
 
 
 @dataclass

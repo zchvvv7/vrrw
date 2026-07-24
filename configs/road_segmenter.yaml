@@ -26,6 +26,10 @@ post_processing:
   canny_high_threshold: 150
   mask_smoothing: true
   smoothing_kernel_size: 5
+  contour_smoothing: true
+  smoothing_factor: 5.0
+  spline_order: 3
+  resample_points: 200
 
 performance:
   enable_profiling: true

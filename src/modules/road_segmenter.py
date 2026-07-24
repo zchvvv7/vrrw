@@ -3,7 +3,7 @@
 用途: 输出可行驶区域分割结果
 作者: 温涵清
 创建日期: 2026-07-16
-最后修改日期: 2026-07-17
+最后修改日期: 2026-07-24
 """
 
 import logging
@@ -14,6 +14,7 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 import torch
+from scipy.interpolate import splprep, splev
 from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
 
 from src.config.config import RoadSegmenterConfig
@@ -138,7 +139,47 @@ class RoadSegmenter:
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.GaussianBlur(mask, (kernel_size, kernel_size), 0)
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+
+        if self.config.post_processing.contour_smoothing:
+            mask = self._smooth_contour(mask)
+
         return mask
+
+    # 使用B样条平滑轮廓
+    def _smooth_contour(self, mask: np.ndarray) -> np.ndarray:
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return mask
+
+        smoothed_mask = np.zeros_like(mask)
+        smoothing_factor = self.config.post_processing.smoothing_factor
+        spline_order = self.config.post_processing.spline_order
+        resample_points = self.config.post_processing.resample_points
+
+        for contour in contours:
+            contour = contour.squeeze()
+            if contour.ndim == 1:
+                cv2.drawContours(smoothed_mask, [contour.reshape(1, 1, 2)], -1, 255, -1)
+                continue
+            if len(contour) < spline_order + 2:
+                cv2.drawContours(smoothed_mask, [contour.reshape(-1, 1, 2)], -1, 255, -1)
+                continue
+
+            x = contour[:, 0]
+            y = contour[:, 1]
+
+            try:
+                tck, _ = splprep([x, y], k=spline_order, s=smoothing_factor * len(contour))
+                t = np.linspace(0, 1, resample_points)
+                x_smooth, y_smooth = splev(t, tck)
+                smooth_contour = np.column_stack([x_smooth, y_smooth]).astype(np.int32)
+                smooth_contour = smooth_contour.reshape(-1, 1, 2)
+                cv2.drawContours(smoothed_mask, [smooth_contour], -1, 255, -1)
+            except Exception as e:
+                self.logger.warning(f"Spline smoothing failed: {str(e)}")
+                cv2.drawContours(smoothed_mask, [contour.reshape(-1, 1, 2)], -1, 255, -1)
+
+        return smoothed_mask
 
     # 验证输入帧的有效性
     def _validate_input(self, frame: np.ndarray) -> Tuple[bool, int, str]:

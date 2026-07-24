@@ -8,3 +8,10 @@ Pillow>=10.0.0
 pyyaml>=6.0.0
 pytest>=7.0.0
 scipy>=1.10.0
+fvcore>=0.1.5
+iopath>=0.1.9
+timm>=0.6.13
+pycocotools>=2.0.7
+tabulate>=0.9.0
+
+# Detectron2需按照目标PyTorch和CUDA版本单独安装

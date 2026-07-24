@@ -18,7 +18,7 @@
 - 输入
   - 本地视频文件输入
 - 道路可行驶区域分割
-- 未知障碍物检测（基于road mask找异常区域）
+- 未知障碍物检测（Mask2Anomaly像素级异常分割）
 - 可视化结果输出
 
 
@@ -69,10 +69,36 @@ segmentation-models-pytorch>=0.3.3
 Pillow>=10.0.0
 pyyaml>=6.0.0
 pytest>=7.0.0
+fvcore>=0.1.5
+iopath>=0.1.9
+timm>=0.6.13
+pycocotools>=2.0.7
+tabulate>=0.9.0
 
 可通过以下指令安装：
 pip install -r requirements.txt
 ```
+
+Mask2Anomaly还依赖Detectron2和MSDeformAttn扩展。需要根据目标服务器的
+PyTorch、CUDA版本安装Detectron2，并在Linux/NVIDIA环境执行：
+
+```commandline
+cd mask2former/modeling/pixel_decoder/ops
+sh make.sh
+```
+
+Apple Silicon不支持该项目当前使用的CUDA扩展，不能作为最终性能验收环境。
+
+
+### Mask2Anomaly模型
+
+- 模型配置：`configs/mask2anomaly/anomaly_inference.yaml`
+- 模型权重：`checkpoints/mask2anomaly/best_contrastive.pth`
+- 模型源码：`mask2former/`
+- 模型后端：`src/modules/mask2anomaly_backend.py`
+- 未知区域后处理：`src/modules/unknown_detector.py`
+
+模型权重不提交Git，交付时应通过单独权重包或受控存储提供。
 
 
 ### 配置修改
@@ -91,4 +117,5 @@ pip install -r requirements.txt
 
 - 简单切割道路可行驶区域（未进行区域边缘平滑优化）
 - 已知障碍物检测尚未接入
-- 未知障碍物检测基于road mask，为初版逻辑
+- 未知障碍物检测已接入Mask2Anomaly
+- 风险状态机和距离估计尚未完成

@@ -16,12 +16,27 @@ road_segmenter:
   config_path: "configs/road_segmenter.yaml"
 
 unknown_detector:
-  min_area: 600
-  max_area: 40000
-  close_kernel_size: 35
-  edge_margin_kernel_size: 31
-  min_score: 0.35
-  lower_roi_ratio: 0.35
+  backend: "mask2anomaly"
+
+  model:
+    config_path: "configs/mask2anomaly/anomaly_inference.yaml"
+    weights_path: "checkpoints/mask2anomaly/best_contrastive.pth"
+    weights_sha256: "4fc7ef19a58e7fd5b41863467d3eee3d36cee3e9a8e839a1cad93cdc0c1e3695"
+    device: "cuda:0"
+    num_inlier_classes: 19
+
+  post_processing:
+    pixel_threshold: 0.5
+    known_mask_threshold: 0.5
+    min_area_ratio: 0.0002
+    max_area_ratio: 0.15
+    lower_roi_ratio: 0.25
+    roi_dilate_kernel_size: 31
+    morphology_kernel_size: 5
+    region_score_quantile: 0.95
+
+  inference:
+    enable_flip_tta: false
 
 system:
   show_window: false

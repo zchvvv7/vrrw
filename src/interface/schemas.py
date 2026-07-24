@@ -3,7 +3,7 @@
 用途: 定义系统各模块之间传递的数据结构
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-16
+最后修改日期: 2026-07-24
 """
 
 from dataclasses import dataclass
@@ -31,6 +31,9 @@ class UnknownRegion:
     bbox: Tuple[int, int, int, int]
     score: float
     distance: Optional[float] = None
+    object_id: Optional[str] = None
+    area: Optional[int] = None
+    mask_rle: Optional[dict] = None
 
 
 class SystemStatus:
@@ -86,6 +89,24 @@ class RoadSegmentResult:
 
 
 @dataclass
+class UnknownDetectionResult:
+    """表示未知障碍物检测结果"""
+
+    score_map: np.ndarray
+    anomaly_mask: np.ndarray
+    regions: List[UnknownRegion]
+    inference_time_ms: float
+    error_code: int
+    error_message: str
+    model_version: str
+
+    # 判断未知障碍物检测是否成功
+    @property
+    def is_successful(self) -> bool:
+        return self.error_code == 0
+
+
+@dataclass
 class FrameResult:
     """保存单帧处理结果"""
 
@@ -95,3 +116,4 @@ class FrameResult:
     unknown_regions: List[UnknownRegion]
     risk_level: str
     major_reason: str
+    anomaly_mask: Optional[np.ndarray] = None

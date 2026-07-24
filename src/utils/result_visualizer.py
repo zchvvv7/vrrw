@@ -3,7 +3,7 @@
 用途: 将道路区域、检测框和风险等级画到图像上
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-16
+最后修改日期: 2026-07-24
 """
 
 import cv2
@@ -17,6 +17,33 @@ def _draw_road_mask(output: np.ndarray, road_mask: np.ndarray) -> np.ndarray:
     road_overlay = np.zeros_like(output)
     road_overlay[:, :, 1] = road_mask
     return cv2.addWeighted(output, 0.7, road_overlay, 0.3, 0)
+
+
+# 绘制未知异常像素区域
+def _draw_anomaly_mask(
+    output: np.ndarray,
+    result: FrameResult,
+) -> np.ndarray:
+    if result.anomaly_mask is None:
+        return output
+
+    if result.anomaly_mask.shape != output.shape[:2]:
+        return output
+
+    anomaly_pixels = result.anomaly_mask > 0
+    anomaly_overlay = np.zeros_like(output)
+    anomaly_overlay[:, :, 2] = result.anomaly_mask
+    blended_output = cv2.addWeighted(
+        output,
+        0.65,
+        anomaly_overlay,
+        0.35,
+        0,
+    )
+    output[anomaly_pixels] = blended_output[
+        anomaly_pixels
+    ]
+    return output
 
 
 # 绘制已知障碍物检测框
@@ -41,7 +68,10 @@ def _draw_known_objects(output: np.ndarray, result: FrameResult) -> np.ndarray:
 
 
 # 绘制未知异常区域检测框
-def _draw_unknown_regions(output: np.ndarray, result: FrameResult) -> np.ndarray:
+def _draw_unknown_regions(
+    output: np.ndarray,
+    result: FrameResult,
+) -> np.ndarray:
     for unknown_region in result.unknown_regions:
         x1, y1, x2, y2 = unknown_region.bbox
         cv2.rectangle(output, (x1, y1), (x2, y2), (255, 0, 255), 2)
@@ -85,6 +115,7 @@ def _draw_risk_info(output: np.ndarray, result: FrameResult) -> np.ndarray:
 def draw_result(frame: np.ndarray, result: FrameResult) -> np.ndarray:
     output = frame.copy()
     output = _draw_road_mask(output, result.road_mask)
+    output = _draw_anomaly_mask(output, result)
     output = _draw_known_objects(output, result)
     output = _draw_unknown_regions(output, result)
     output = _draw_risk_info(output, result)

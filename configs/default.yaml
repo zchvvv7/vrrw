@@ -16,10 +16,11 @@ road_segmenter:
   config_path: "configs/road_segmenter.yaml"
 
 known_detector:
-  model_name: "checkpoints/known_detector/best.pt"
+  model_name: "checkpoints/yolo_best.pt"
+  weights_sha256: "1586fa1fa233f664c5a52d60d6617da654e980231a2cfb3eb34f434f3202842f"
   conf_threshold: 0.25
   iou_threshold: 0.45
-  device: "cuda:0"
+  device: "auto"
   classes:
     - cone
     - barrier

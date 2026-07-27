@@ -3,27 +3,33 @@
 用途: 项目总流程
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-24
+最后修改日期: 2026-07-27
 """
 
 import json
 import logging
 import os
 import time
+from typing import Optional
 from typing import Tuple
 from typing import Union
 
 import cv2
 import yaml
+from huggingface_hub.utils import disable_progress_bars
+from huggingface_hub.utils import logging as hub_logging
+from transformers.utils import logging as transformers_logging
 
 from src.data.camera_reader import CameraReader
 from src.data.video_reader import VideoReader
 from src.interface.schemas import FrameResult
+from src.interface.schemas import KnownDetectionResult
 from src.interface.schemas import RoadSegmentResult
 from src.interface.schemas import UnknownDetectionResult
-from src.modules.road_segmenter import RoadSegmenter
-from src.modules.unknown_detector import UnknownDetector
 from src.modules.known_detector import KnownDetector
+from src.modules.road_segmenter import RoadSegmenter
+# TODO: 恢复未知障碍物检测时取消下一行注释
+# from src.modules.unknown_detector import UnknownDetector
 from src.utils.live_visualizer import LiveVisualizer
 from src.utils.result_visualizer import draw_result
 
@@ -32,6 +38,19 @@ from src.utils.result_visualizer import draw_result
 def load_config(config_path: str) -> dict:
     with open(config_path, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
+
+# 关闭第三方库在终端输出的提示和进度条
+def configure_external_output() -> None:
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+    os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+    os.environ["YOLO_VERBOSE"] = "False"
+    disable_progress_bars()
+    hub_logging.set_verbosity_error()
+    transformers_logging.disable_progress_bar()
+    transformers_logging.set_verbosity_error()
+    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+    logging.getLogger("transformers").setLevel(logging.ERROR)
+    logging.getLogger("ultralytics").setLevel(logging.ERROR)
 
 # 初始化运行日志
 def setup_logger(log_path: str) -> logging.Logger:
@@ -54,7 +73,14 @@ def setup_logger(log_path: str) -> logging.Logger:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     logger.propagate = False
+
+    source_logger = logging.getLogger("src")
+    source_logger.setLevel(logging.INFO)
+    source_logger.handlers.clear()
+    source_logger.addHandler(file_handler)
+    source_logger.propagate = False
     return logger
+
 
 # 创建输入源读取器
 def build_reader(
@@ -77,26 +103,55 @@ def build_reader(
         f"Unsupported source_type: {source_type}"
     )
 
+
 # 根据模块状态生成当前帧风险显示信息
 def build_frame_status(
     road_result: RoadSegmentResult,
-    unknown_result: UnknownDetectionResult,
+    known_result: KnownDetectionResult,
+    unknown_result: Optional[
+        UnknownDetectionResult
+    ] = None,
 ) -> Tuple[str, str]:
     if road_result.is_unavailable:
         return "unavailable", road_result.error_message
-    if not unknown_result.is_successful:
+
+    if not known_result.is_successful:
+        return "unavailable", known_result.error_message
+
+    if (
+        unknown_result is not None
+        and not unknown_result.is_successful
+    ):
         return "unavailable", unknown_result.error_message
+
     if road_result.is_degraded:
         return "degraded", road_result.error_message
-    if unknown_result.regions:
+
+    if (
+        known_result.objects
+        and unknown_result is not None
+        and unknown_result.regions
+    ):
+        return "notice", "known_and_unknown_obstacle_detected"
+
+    if known_result.objects:
+        return "notice", "known_obstacle_detected"
+
+    if (
+        unknown_result is not None
+        and unknown_result.regions
+    ):
         return "notice", "unknown_obstacle_detected"
+
     return "safe", "no_obstacle"
+
 
 # 生成单帧JSON记录
 def build_frame_record(
     frame_id: int,
     road_result: RoadSegmentResult,
-    unknown_result: UnknownDetectionResult,
+    known_result: KnownDetectionResult,
+    unknown_result: Optional[UnknownDetectionResult],
     risk_level: str,
     major_reason: str,
 ) -> dict:
@@ -112,31 +167,76 @@ def build_frame_record(
                 road_result.inference_time_ms
             ),
         },
-        "unknown_detection": {
-            "model_version": unknown_result.model_version,
+        "known_detection": {
+            "model_version": known_result.model_version,
             "inference_time_ms": (
-                unknown_result.inference_time_ms
+                known_result.inference_time_ms
             ),
-            "error_code": unknown_result.error_code,
-            "error_message": unknown_result.error_message,
-            "region_count": len(unknown_result.regions),
+            "error_code": known_result.error_code,
+            "error_message": known_result.error_message,
+            "object_count": len(known_result.objects),
         },
-        "unknown_regions": [
+        "known_objects": [
             {
-                "object_id": region.object_id,
-                "bbox": list(region.bbox),
-                "score": region.score,
-                "area": region.area,
-                "distance": region.distance,
-                "mask_rle": region.mask_rle,
+                "class_name": detected_object.class_name,
+                "bbox": list(detected_object.bbox),
+                "confidence": (
+                    detected_object.confidence
+                ),
+                "distance": detected_object.distance,
             }
-            for region in unknown_result.regions
+            for detected_object in known_result.objects
         ],
+        "unknown_detection": (
+            {
+                "enabled": True,
+                "model_version": (
+                    unknown_result.model_version
+                ),
+                "inference_time_ms": (
+                    unknown_result.inference_time_ms
+                ),
+                "error_code": unknown_result.error_code,
+                "error_message": (
+                    unknown_result.error_message
+                ),
+                "region_count": len(
+                    unknown_result.regions
+                ),
+            }
+            if unknown_result is not None
+            else {
+                "enabled": False,
+                "model_version": "disabled",
+                "inference_time_ms": 0.0,
+                "error_code": 0,
+                "error_message": (
+                    "Unknown detection is disabled."
+                ),
+                "region_count": 0,
+            }
+        ),
+        "unknown_regions": (
+            [
+                {
+                    "object_id": region.object_id,
+                    "bbox": list(region.bbox),
+                    "score": region.score,
+                    "area": region.area,
+                    "distance": region.distance,
+                    "mask_rle": region.mask_rle,
+                }
+                for region in unknown_result.regions
+            ]
+            if unknown_result is not None
+            else []
+        ),
         "risk": {
             "risk_level": risk_level,
             "major_reason": major_reason,
         },
     }
+
 
 # 保存JSON结果
 def save_result_json(
@@ -167,8 +267,10 @@ def save_result_json(
             indent=2,
         )
 
+
 # 运行道路风险处理流程
 def run_pipeline(config_path: str) -> None:
+    configure_external_output()
     config = load_config(config_path)
     source_type = config["input"]["source_type"]
     logger = setup_logger(
@@ -205,9 +307,10 @@ def run_pipeline(config_path: str) -> None:
             config["road_segmenter"]["config_path"]
         ),
     )
-    unknown_detector = UnknownDetector(
-        config=config["unknown_detector"],
-    )
+    # TODO: 恢复未知障碍物检测时取消下面三行注释
+    # unknown_detector = UnknownDetector(
+    #     config=config["unknown_detector"],
+    # )
     known_detector = KnownDetector(
         config=config["known_detector"],
     )
@@ -247,32 +350,43 @@ def run_pipeline(config_path: str) -> None:
             )
         for frame_id, frame in reader.frames():
             road_result = road_segmenter.predict(frame)
-            unknown_result = unknown_detector.predict(
+            known_result = known_detector.predict(
                 frame=frame,
-                road_mask=road_result.mask,
             )
-            known_objects = known_detector.predict(
-                frame,
-            )
+            # TODO: 恢复未知障碍物检测时取消下面四行注释
+            # unknown_result = unknown_detector.predict(
+            #     frame=frame,
+            #     road_mask=road_result.mask,
+            # )
             risk_level, major_reason = build_frame_status(
                 road_result,
-                unknown_result,
+                known_result,
+                # unknown_result,
+                unknown_result=None,
             )
-            if not unknown_result.is_successful:
+            if not known_result.is_successful:
                 logger.error(
-                    "Unknown detection failed: %s",
-                    unknown_result.error_message,
+                    "Known detection failed: %s",
+                    known_result.error_message,
                 )
+            # TODO: 恢复未知障碍物检测时取消下面五行注释
+            # if not unknown_result.is_successful:
+            #     logger.error(
+            #         "Unknown detection failed: %s",
+            #         unknown_result.error_message,
+            #     )
             result = FrameResult(
                 frame_id=frame_id,
                 road_mask=road_result.mask,
-                known_objects=known_objects,
-                unknown_regions=unknown_result.regions,
+                known_objects=known_result.objects,
+                # unknown_regions=unknown_result.regions,
+                unknown_regions=[],
                 risk_level=risk_level,
                 major_reason=major_reason,
-                anomaly_mask=(
-                    unknown_result.anomaly_mask
-                ),
+                # anomaly_mask=(
+                #     unknown_result.anomaly_mask
+                # ),
+                anomaly_mask=None,
             )
             output_frame = draw_result(frame, result)
             writer.write(output_frame)
@@ -288,7 +402,9 @@ def run_pipeline(config_path: str) -> None:
                 build_frame_record(
                     frame_id=frame_id,
                     road_result=road_result,
-                    unknown_result=unknown_result,
+                    known_result=known_result,
+                    # unknown_result=unknown_result,
+                    unknown_result=None,
                     risk_level=risk_level,
                     major_reason=major_reason,
                 )

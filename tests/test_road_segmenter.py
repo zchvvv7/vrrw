@@ -3,23 +3,142 @@
 用途: 测试RoadSegmenter模块
 作者: 温涵清
 创建日期: 2026-07-16
-最后修改日期: 2026-07-24
+最后修改日期: 2026-07-27
 """
+
+from types import SimpleNamespace
+from typing import Any
 
 import cv2
 import numpy as np
 import pytest
+import torch
 
 from src.config.config import RoadSegmenterConfig
+from src.modules import road_segmenter as road_segmenter_module
 from src.modules.road_segmenter import RoadSegmenter
+
+
+class FakeSegformerProcessor:
+    """模拟SegFormer图像处理器"""
+
+    # 将输入图像转换为固定尺寸测试张量
+    def __call__(
+        self,
+        images: np.ndarray,
+        return_tensors: str,
+    ) -> dict:
+        return {
+            "pixel_values": torch.zeros(
+                (1, 3, 64, 64),
+                dtype=torch.float32,
+            )
+        }
+
+
+class FakeProcessorFactory:
+    """模拟SegFormer图像处理器工厂"""
+
+    # 返回离线测试图像处理器
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_name: str,
+    ) -> FakeSegformerProcessor:
+        return FakeSegformerProcessor()
+
+
+class FakeSegformerModel:
+    """模拟可重复输出的SegFormer模型"""
+
+    # 初始化模拟模型类别数量
+    def __init__(self, num_labels: int) -> None:
+        self._num_labels = num_labels
+
+    # 模拟将模型移动到目标设备
+    def to(
+        self,
+        device: torch.device,
+    ) -> "FakeSegformerModel":
+        return self
+
+    # 模拟切换模型为推理模式
+    def eval(self) -> "FakeSegformerModel":
+        return self
+
+    # 生成道路类别占优的固定分割输出
+    def __call__(self, **inputs: Any) -> SimpleNamespace:
+        batch_size = inputs["pixel_values"].shape[0]
+        logits = torch.zeros(
+            (
+                batch_size,
+                self._num_labels,
+                64,
+                64,
+            ),
+            dtype=torch.float32,
+        )
+        logits[:, 0, :, :] = 5.0
+        return SimpleNamespace(logits=logits)
+
+    # 模拟加载本地模型参数
+    def load_state_dict(
+        self,
+        state_dict: dict,
+        strict: bool,
+    ) -> tuple:
+        return [], []
+
+
+class FakeModelFactory:
+    """模拟SegFormer模型工厂"""
+
+    # 返回离线测试模型
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_name: str,
+        num_labels: int,
+    ) -> FakeSegformerModel:
+        return FakeSegformerModel(num_labels)
+
+
+# 模拟本地权重加载以避免读取真实大模型
+def fake_load_checkpoint(
+    segmenter: RoadSegmenter,
+    checkpoint_path: str,
+) -> None:
+    return None
+
+
+# 将道路分割外部模型替换为离线测试实现
+@pytest.fixture(autouse=True)
+def mock_segformer_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        road_segmenter_module,
+        "SegformerImageProcessor",
+        FakeProcessorFactory,
+    )
+    monkeypatch.setattr(
+        road_segmenter_module,
+        "SegformerForSemanticSegmentation",
+        FakeModelFactory,
+    )
+    monkeypatch.setattr(
+        RoadSegmenter,
+        "load_checkpoint",
+        fake_load_checkpoint,
+    )
 
 
 class TestRoadSegmenter:
     """RoadSegmenter模块测试类"""
 
     # 创建RoadSegmenter实例（禁用质量检测以避免随机噪声影响）
-    @pytest.fixture(scope="class")
-    def segmenter(self):
+    @pytest.fixture
+    def segmenter(self) -> RoadSegmenter:
         config = RoadSegmenterConfig()
         config.quality.enable_quality_check = False
         return RoadSegmenter(config=config)

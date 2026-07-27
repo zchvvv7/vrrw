@@ -1,13 +1,15 @@
 """
 文件名: test_main_unknown_integration.py
-用途: 测试未知障碍物检测结果与主流程的数据衔接
+用途: 测试已知和未知障碍物检测结果与主流程的数据衔接
 作者: 张楚涵
 创建日期: 2026-07-24
-最后修改日期: 2026-07-24
+最后修改日期: 2026-07-27
 """
 
 import numpy as np
 
+from src.interface.schemas import DetectedObject
+from src.interface.schemas import KnownDetectionResult
 from src.interface.schemas import RoadSegmentResult
 from src.interface.schemas import SystemStatus
 from src.interface.schemas import UnknownDetectionResult
@@ -32,6 +34,33 @@ def build_road_result() -> RoadSegmentResult:
         error_message="OK",
         inference_time_ms=10.0,
         system_status=SystemStatus.NORMAL,
+    )
+
+
+# 创建无目标的测试已知障碍物检测结果
+def build_empty_known_result() -> KnownDetectionResult:
+    return KnownDetectionResult(
+        objects=[],
+        inference_time_ms=5.0,
+        error_code=0,
+        error_message="OK",
+        model_version="yolo-test",
+    )
+
+
+# 创建包含目标的测试已知障碍物检测结果
+def build_known_result() -> KnownDetectionResult:
+    detected_object = DetectedObject(
+        class_name="cone",
+        bbox=(5, 8, 12, 18),
+        confidence=0.85,
+    )
+    return KnownDetectionResult(
+        objects=[detected_object],
+        inference_time_ms=5.0,
+        error_code=0,
+        error_message="OK",
+        model_version="yolo-test",
     )
 
 
@@ -63,10 +92,12 @@ def build_unknown_result() -> UnknownDetectionResult:
 # 测试未知障碍物会触发notice状态
 def test_unknown_region_sets_notice_status() -> None:
     road_result = build_road_result()
+    known_result = build_empty_known_result()
     unknown_result = build_unknown_result()
 
     risk_level, major_reason = build_frame_status(
         road_result,
+        known_result,
         unknown_result,
     )
 
@@ -74,13 +105,32 @@ def test_unknown_region_sets_notice_status() -> None:
     assert major_reason == "unknown_obstacle_detected"
 
 
+# 测试已知障碍物会触发notice状态
+def test_known_object_sets_notice_status() -> None:
+    road_result = build_road_result()
+    known_result = build_known_result()
+    unknown_result = build_unknown_result()
+    unknown_result.regions = []
+
+    risk_level, major_reason = build_frame_status(
+        road_result,
+        known_result,
+        unknown_result,
+    )
+
+    assert risk_level == "notice"
+    assert major_reason == "known_obstacle_detected"
+
+
 # 测试未知障碍物结果可以写入单帧记录
 def test_unknown_result_is_written_to_frame_record() -> None:
     road_result = build_road_result()
+    known_result = build_empty_known_result()
     unknown_result = build_unknown_result()
     frame_record = build_frame_record(
         frame_id=1,
         road_result=road_result,
+        known_result=known_result,
         unknown_result=unknown_result,
         risk_level="notice",
         major_reason="unknown_obstacle_detected",
@@ -90,3 +140,48 @@ def test_unknown_result_is_written_to_frame_record() -> None:
     assert frame_record["unknown_detection"]["region_count"] == 1
     assert frame_record["unknown_regions"][0]["score"] == 0.9
     assert frame_record["risk"]["risk_level"] == "notice"
+
+
+# 测试已知障碍物结果可以写入单帧记录
+def test_known_result_is_written_to_frame_record() -> None:
+    road_result = build_road_result()
+    known_result = build_known_result()
+    unknown_result = build_unknown_result()
+    frame_record = build_frame_record(
+        frame_id=1,
+        road_result=road_result,
+        known_result=known_result,
+        unknown_result=unknown_result,
+        risk_level="notice",
+        major_reason="known_obstacle_detected",
+    )
+
+    assert frame_record["known_detection"]["error_code"] == 0
+    assert frame_record["known_detection"]["object_count"] == 1
+    assert frame_record["known_objects"][0]["class_name"] == "cone"
+    assert frame_record["known_objects"][0]["confidence"] == 0.85
+
+
+# 测试关闭未知检测时已知检测流程仍可正常工作
+def test_disabled_unknown_detection_keeps_known_flow() -> None:
+    road_result = build_road_result()
+    known_result = build_known_result()
+
+    risk_level, major_reason = build_frame_status(
+        road_result,
+        known_result,
+        unknown_result=None,
+    )
+    frame_record = build_frame_record(
+        frame_id=1,
+        road_result=road_result,
+        known_result=known_result,
+        unknown_result=None,
+        risk_level=risk_level,
+        major_reason=major_reason,
+    )
+
+    assert risk_level == "notice"
+    assert major_reason == "known_obstacle_detected"
+    assert frame_record["unknown_detection"]["enabled"] is False
+    assert frame_record["unknown_regions"] == []

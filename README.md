@@ -18,6 +18,7 @@
 - 输入
   - 本地视频文件输入
 - 道路可行驶区域分割
+- 已知障碍物检测（YOLO）
 - 未知障碍物检测（Mask2Anomaly像素级异常分割）
 - 可视化结果输出
 
@@ -74,6 +75,7 @@ iopath>=0.1.9
 timm>=0.6.13
 pycocotools>=2.0.7
 tabulate>=0.9.0
+ultralytics>=8.3.0
 
 可通过以下指令安装：
 pip install -r requirements.txt
@@ -88,6 +90,13 @@ sh make.sh
 ```
 
 Apple Silicon不支持该项目当前使用的CUDA扩展，不能作为最终性能验收环境。
+
+
+### YOLO已知障碍物模型
+
+- 模型权重：`checkpoints/yolo_best.pt`
+- 检测后端：`src/modules/known_detector.py`
+- 支持类别：`cone`、`barrier`、`pothole`、`vehicle`
 
 
 ### Mask2Anomaly模型
@@ -116,6 +125,6 @@ Apple Silicon不支持该项目当前使用的CUDA扩展，不能作为最终性
 ### 当前版本
 
 - 简单切割道路可行驶区域（未进行区域边缘平滑优化）
-- 已知障碍物检测尚未接入
+- 已知障碍物检测已接入YOLO
 - 未知障碍物检测已接入Mask2Anomaly
 - 风险状态机和距离估计尚未完成

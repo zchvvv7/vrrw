@@ -3,7 +3,7 @@
 用途: 定义系统各模块之间传递的数据结构
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-24
+最后修改日期: 2026-07-27
 """
 
 from dataclasses import dataclass
@@ -22,6 +22,22 @@ class DetectedObject:
     bbox: Tuple[int, int, int, int]
     confidence: float
     distance: Optional[float] = None
+
+
+@dataclass
+class KnownDetectionResult:
+    """表示已知障碍物检测结果"""
+
+    objects: List[DetectedObject]
+    inference_time_ms: float
+    error_code: int
+    error_message: str
+    model_version: str
+
+    # 判断已知障碍物检测是否成功
+    @property
+    def is_successful(self) -> bool:
+        return self.error_code == 0
 
 
 @dataclass

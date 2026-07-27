@@ -1,0 +1,12 @@
+path: data/known_detector
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: cone
+  1: barrier
+  2: pothole
+  3: vehicle
+
+nc: 4

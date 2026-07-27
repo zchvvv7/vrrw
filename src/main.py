@@ -23,6 +23,7 @@ from src.interface.schemas import RoadSegmentResult
 from src.interface.schemas import UnknownDetectionResult
 from src.modules.road_segmenter import RoadSegmenter
 from src.modules.unknown_detector import UnknownDetector
+from src.modules.known_detector import KnownDetector
 from src.utils.live_visualizer import LiveVisualizer
 from src.utils.result_visualizer import draw_result
 
@@ -207,6 +208,9 @@ def run_pipeline(config_path: str) -> None:
     unknown_detector = UnknownDetector(
         config=config["unknown_detector"],
     )
+    known_detector = KnownDetector(
+        config=config["known_detector"],
+    )
     reader = build_reader(config)
     writer = None
     live_visualizer = None
@@ -247,6 +251,9 @@ def run_pipeline(config_path: str) -> None:
                 frame=frame,
                 road_mask=road_result.mask,
             )
+            known_objects = known_detector.predict(
+                frame,
+            )
             risk_level, major_reason = build_frame_status(
                 road_result,
                 unknown_result,
@@ -259,7 +266,7 @@ def run_pipeline(config_path: str) -> None:
             result = FrameResult(
                 frame_id=frame_id,
                 road_mask=road_result.mask,
-                known_objects=[],
+                known_objects=known_objects,
                 unknown_regions=unknown_result.regions,
                 risk_level=risk_level,
                 major_reason=major_reason,

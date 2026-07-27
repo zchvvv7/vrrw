@@ -15,6 +15,17 @@ output:
 road_segmenter:
   config_path: "configs/road_segmenter.yaml"
 
+known_detector:
+  model_name: "checkpoints/known_detector/best.pt"
+  conf_threshold: 0.25
+  iou_threshold: 0.45
+  device: "cuda:0"
+  classes:
+    - cone
+    - barrier
+    - pothole
+    - vehicle
+
 unknown_detector:
   backend: "mask2anomaly"
 

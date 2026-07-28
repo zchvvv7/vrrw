@@ -3,7 +3,7 @@
 用途: 定义系统各模块之间传递的数据结构
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-27
+最后修改日期: 2026-07-28
 """
 
 from dataclasses import dataclass
@@ -35,6 +35,24 @@ class KnownDetectionResult:
     model_version: str
 
     # 判断已知障碍物检测是否成功
+    @property
+    def is_successful(self) -> bool:
+        return self.error_code == 0
+
+
+@dataclass
+class DistanceEstimationResult:
+    """表示仅针对已知障碍物的距离估计结果"""
+
+    known_objects: List[DetectedObject]
+    inference_time_ms: float
+    error_code: int
+    error_message: str
+    method: str
+    model_version: str
+    is_enabled: bool
+
+    # 判断距离估计是否成功或已按配置关闭
     @property
     def is_successful(self) -> bool:
         return self.error_code == 0
@@ -105,6 +123,27 @@ class RoadSegmentResult:
 
 
 @dataclass
+class CorridorPredictionResult:
+    """表示视频当前帧中的自车行驶走廊预测结果"""
+
+    corridor_mask: Optional[np.ndarray]
+    polygon: List[Tuple[int, int]]
+    centerline: List[Tuple[int, int]]
+    confidence: float
+    inference_time_ms: float
+    error_code: int
+    error_message: str
+    method: str
+    model_version: str
+    is_enabled: bool
+
+    # 判断行驶走廊预测是否成功或已按配置关闭
+    @property
+    def is_successful(self) -> bool:
+        return self.error_code == 0
+
+
+@dataclass
 class UnknownDetectionResult:
     """表示未知障碍物检测结果"""
 
@@ -133,3 +172,6 @@ class FrameResult:
     risk_level: str
     major_reason: str
     anomaly_mask: Optional[np.ndarray] = None
+    corridor_mask: Optional[np.ndarray] = None
+    corridor_polygon: Optional[List[Tuple[int, int]]] = None
+    corridor_centerline: Optional[List[Tuple[int, int]]] = None

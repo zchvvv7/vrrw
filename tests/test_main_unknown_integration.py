@@ -3,12 +3,14 @@
 用途: 测试已知和未知障碍物检测结果与主流程的数据衔接
 作者: 张楚涵
 创建日期: 2026-07-24
-最后修改日期: 2026-07-27
+最后修改日期: 2026-07-28
 """
 
 import numpy as np
 
+from src.interface.schemas import CorridorPredictionResult
 from src.interface.schemas import DetectedObject
+from src.interface.schemas import DistanceEstimationResult
 from src.interface.schemas import KnownDetectionResult
 from src.interface.schemas import RoadSegmentResult
 from src.interface.schemas import SystemStatus
@@ -185,3 +187,66 @@ def test_disabled_unknown_detection_keeps_known_flow() -> None:
     assert major_reason == "known_obstacle_detected"
     assert frame_record["unknown_detection"]["enabled"] is False
     assert frame_record["unknown_regions"] == []
+
+
+# 测试距离和走廊接口结果可以写入单帧记录
+def test_new_module_results_are_written_to_record() -> None:
+    road_result = build_road_result()
+    known_result = build_known_result()
+    unknown_result = build_unknown_result()
+    known_result.objects[0].distance = 8.5
+    distance_result = DistanceEstimationResult(
+        known_objects=known_result.objects,
+        inference_time_ms=4.0,
+        error_code=0,
+        error_message="OK",
+        method="test_distance",
+        model_version="test-v1",
+        is_enabled=True,
+    )
+    corridor_result = CorridorPredictionResult(
+        corridor_mask=np.zeros(
+            (20, 40),
+            dtype=np.uint8,
+        ),
+        polygon=[
+            (5, 19),
+            (35, 19),
+            (25, 5),
+            (15, 5),
+        ],
+        centerline=[
+            (20, 19),
+            (20, 5),
+        ],
+        confidence=0.8,
+        inference_time_ms=2.0,
+        error_code=0,
+        error_message="OK",
+        method="test_corridor",
+        model_version="test-v1",
+        is_enabled=True,
+    )
+
+    frame_record = build_frame_record(
+        frame_id=1,
+        road_result=road_result,
+        known_result=known_result,
+        unknown_result=unknown_result,
+        risk_level="notice",
+        major_reason="known_obstacle_detected",
+        distance_result=distance_result,
+        corridor_result=corridor_result,
+    )
+
+    assert frame_record["known_objects"][0]["distance"] == 8.5
+    assert frame_record["distance_estimation"]["enabled"]
+    assert (
+        frame_record["distance_estimation"]["method"]
+        == "test_distance"
+    )
+    assert frame_record["corridor_prediction"]["confidence"] == 0.8
+    assert frame_record["corridor_prediction"]["polygon"][0] == [
+        5,
+        19,
+    ]

@@ -22,10 +22,14 @@ from transformers.utils import logging as transformers_logging
 
 from src.data.camera_reader import CameraReader
 from src.data.video_reader import VideoReader
+from src.interface.schemas import CorridorPredictionResult
+from src.interface.schemas import DistanceEstimationResult
 from src.interface.schemas import FrameResult
 from src.interface.schemas import KnownDetectionResult
 from src.interface.schemas import RoadSegmentResult
 from src.interface.schemas import UnknownDetectionResult
+from src.modules.corridor_predictor import CorridorPredictor
+from src.modules.distance_estimator import DistanceEstimator
 from src.modules.known_detector import KnownDetector
 from src.modules.road_segmenter import RoadSegmenter
 from src.modules.unknown_detector import UnknownDetector
@@ -142,6 +146,12 @@ def build_frame_record(
     unknown_result: Optional[UnknownDetectionResult],
     risk_level: str,
     major_reason: str,
+    distance_result: Optional[
+        DistanceEstimationResult
+    ] = None,
+    corridor_result: Optional[
+        CorridorPredictionResult
+    ] = None,
 ) -> dict:
     return {
         "frame_id": frame_id,
@@ -218,6 +228,78 @@ def build_frame_record(
             ]
             if unknown_result is not None
             else []
+        ),
+        "distance_estimation": (
+            {
+                "enabled": distance_result.is_enabled,
+                "method": distance_result.method,
+                "model_version": (
+                    distance_result.model_version
+                ),
+                "inference_time_ms": (
+                    distance_result.inference_time_ms
+                ),
+                "error_code": distance_result.error_code,
+                "error_message": (
+                    distance_result.error_message
+                ),
+                "object_count": len(
+                    distance_result.known_objects
+                ),
+            }
+            if distance_result is not None
+            else {
+                "enabled": False,
+                "method": "unavailable",
+                "model_version": "unavailable",
+                "inference_time_ms": 0.0,
+                "error_code": 0,
+                "error_message": (
+                    "Distance estimation result is absent."
+                ),
+                "object_count": len(
+                    known_result.objects
+                ),
+            }
+        ),
+        "corridor_prediction": (
+            {
+                "enabled": corridor_result.is_enabled,
+                "method": corridor_result.method,
+                "model_version": (
+                    corridor_result.model_version
+                ),
+                "confidence": corridor_result.confidence,
+                "polygon": [
+                    list(point)
+                    for point in corridor_result.polygon
+                ],
+                "centerline": [
+                    list(point)
+                    for point in corridor_result.centerline
+                ],
+                "inference_time_ms": (
+                    corridor_result.inference_time_ms
+                ),
+                "error_code": corridor_result.error_code,
+                "error_message": (
+                    corridor_result.error_message
+                ),
+            }
+            if corridor_result is not None
+            else {
+                "enabled": False,
+                "method": "unavailable",
+                "model_version": "unavailable",
+                "confidence": 0.0,
+                "polygon": [],
+                "centerline": [],
+                "inference_time_ms": 0.0,
+                "error_code": 0,
+                "error_message": (
+                    "Corridor prediction result is absent."
+                ),
+            }
         ),
         "risk": {
             "risk_level": risk_level,
@@ -296,6 +378,12 @@ def run_pipeline(config_path: str) -> None:
     known_detector = KnownDetector(
         config=config["known_detector"],
     )
+    distance_estimator = DistanceEstimator(
+        config=config.get("distance_estimator", {}),
+    )
+    corridor_predictor = CorridorPredictor(
+        config=config.get("corridor_predictor", {}),
+    )
     unknown_detector = UnknownDetector(
         config=config["unknown_detector"],
     )
@@ -308,6 +396,7 @@ def run_pipeline(config_path: str) -> None:
     start_time = time.time()
     try:
         reader.open()
+        corridor_predictor.reset()
         source_info = reader.get_info()
         fps = source_info["fps"]
         width = source_info["width"]
@@ -338,10 +427,23 @@ def run_pipeline(config_path: str) -> None:
             known_result = known_detector.predict(
                 frame=frame,
             )
+            distance_result = distance_estimator.estimate(
+                frame=frame,
+                frame_id=frame_id,
+                known_objects=known_result.objects,
+            )
+            known_result.objects = (
+                distance_result.known_objects
+            )
             unknown_result = unknown_detector.predict(
                 frame=frame,
                 road_mask=road_result.mask,
                 known_objects=known_result.objects,
+            )
+            corridor_result = corridor_predictor.predict(
+                frame=frame,
+                frame_id=frame_id,
+                road_mask=road_result.mask,
             )
             risk_level, major_reason = build_frame_status(
                 road_result,
@@ -353,10 +455,20 @@ def run_pipeline(config_path: str) -> None:
                     "Known detection failed: %s",
                     known_result.error_message,
                 )
+            if not distance_result.is_successful:
+                logger.error(
+                    "Distance estimation failed: %s",
+                    distance_result.error_message,
+                )
             if not unknown_result.is_successful:
                 logger.error(
                     "Unknown detection failed: %s",
                     unknown_result.error_message,
+                )
+            if not corridor_result.is_successful:
+                logger.error(
+                    "Corridor prediction failed: %s",
+                    corridor_result.error_message,
                 )
             result = FrameResult(
                 frame_id=frame_id,
@@ -367,6 +479,15 @@ def run_pipeline(config_path: str) -> None:
                 major_reason=major_reason,
                 anomaly_mask=(
                     unknown_result.anomaly_mask
+                ),
+                corridor_mask=(
+                    corridor_result.corridor_mask
+                ),
+                corridor_polygon=(
+                    corridor_result.polygon
+                ),
+                corridor_centerline=(
+                    corridor_result.centerline
                 ),
             )
             output_frame = draw_result(frame, result)
@@ -385,6 +506,8 @@ def run_pipeline(config_path: str) -> None:
                     unknown_result=unknown_result,
                     risk_level=risk_level,
                     major_reason=major_reason,
+                    distance_result=distance_result,
+                    corridor_result=corridor_result,
                 )
             )
     except KeyboardInterrupt:

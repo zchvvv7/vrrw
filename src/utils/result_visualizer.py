@@ -3,7 +3,7 @@
 用途: 将道路区域、检测框和风险等级画到图像上
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-24
+最后修改日期: 2026-07-28
 """
 
 import cv2
@@ -17,6 +17,32 @@ def _draw_road_mask(output: np.ndarray, road_mask: np.ndarray) -> np.ndarray:
     road_overlay = np.zeros_like(output)
     road_overlay[:, :, 1] = road_mask
     return cv2.addWeighted(output, 0.7, road_overlay, 0.3, 0)
+
+
+# 绘制视频模式下预测的自车行驶走廊
+def _draw_corridor_mask(
+    output: np.ndarray,
+    result: FrameResult,
+) -> np.ndarray:
+    if result.corridor_mask is None:
+        return output
+    if result.corridor_mask.shape != output.shape[:2]:
+        return output
+
+    corridor_pixels = result.corridor_mask > 0
+    corridor_overlay = np.zeros_like(output)
+    corridor_overlay[:, :, 0] = result.corridor_mask
+    blended_output = cv2.addWeighted(
+        output,
+        0.75,
+        corridor_overlay,
+        0.25,
+        0,
+    )
+    output[corridor_pixels] = blended_output[
+        corridor_pixels
+    ]
+    return output
 
 
 # 绘制未知异常像素区域
@@ -55,6 +81,11 @@ def _draw_known_objects(output: np.ndarray, result: FrameResult) -> np.ndarray:
             f"{detected_object.class_name} "
             f"{detected_object.confidence:.2f}"
         )
+        if detected_object.distance is not None:
+            label = (
+                f"{label} "
+                f"{detected_object.distance:.2f}m"
+            )
         cv2.putText(
             output,
             label,
@@ -115,6 +146,7 @@ def _draw_risk_info(output: np.ndarray, result: FrameResult) -> np.ndarray:
 def draw_result(frame: np.ndarray, result: FrameResult) -> np.ndarray:
     output = frame.copy()
     output = _draw_road_mask(output, result.road_mask)
+    output = _draw_corridor_mask(output, result)
     output = _draw_anomaly_mask(output, result)
     output = _draw_known_objects(output, result)
     output = _draw_unknown_regions(output, result)

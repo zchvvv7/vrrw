@@ -3,17 +3,19 @@
 用途: 调用Mask2Anomaly模型并生成未知异常区域
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-24
+最后修改日期: 2026-07-28
 """
 
 from time import perf_counter
 from typing import Any
 from typing import List
 from typing import Optional
+from typing import Tuple
 
 import cv2
 import numpy as np
 
+from src.interface.schemas import DetectedObject
 from src.interface.schemas import UnknownDetectionResult
 from src.interface.schemas import UnknownRegion
 
@@ -41,7 +43,6 @@ class UnknownDetector:
             "post_processing",
             {},
         )
-
         self._pixel_threshold = post_processing.get(
             "pixel_threshold",
             0.5,
@@ -70,6 +71,14 @@ class UnknownDetector:
             "region_score_quantile",
             0.95,
         )
+        self._known_box_padding_ratio = post_processing.get(
+            "known_box_padding_ratio",
+            0.1,
+        )
+        self._known_box_min_padding = post_processing.get(
+            "known_box_min_padding",
+            4,
+        )
         self._validate_configuration()
         self._backend = backend
         self._backend_error = ""
@@ -95,6 +104,14 @@ class UnknownDetector:
             raise ValueError("lower_roi_ratio must be in the range [0, 1).")
         if not 0.0 <= self._region_score_quantile <= 1.0:
             raise ValueError("region_score_quantile must be between 0 and 1.")
+        if not 0.0 <= self._known_box_padding_ratio <= 1.0:
+            raise ValueError(
+                "known_box_padding_ratio must be between 0 and 1."
+            )
+        if self._known_box_min_padding < 0:
+            raise ValueError(
+                "known_box_min_padding cannot be negative."
+            )
         self._validate_kernel_size(
             self._roi_dilate_kernel_size,
             "roi_dilate_kernel_size",
@@ -215,6 +232,43 @@ class UnknownDetector:
             road_roi,
             lower_roi,
         )
+
+    # 根据已知目标框生成未知异常排除掩码
+    def _build_known_exclusion_mask(
+        self,
+        image_shape: Tuple[int, int],
+        known_objects: List[DetectedObject],
+    ) -> np.ndarray:
+        height, width = image_shape
+        exclusion_mask = np.zeros(
+            (height, width),
+            dtype=np.uint8,
+        )
+        for detected_object in known_objects:
+            x1, y1, x2, y2 = detected_object.bbox
+            box_width = max(0, x2 - x1)
+            box_height = max(0, y2 - y1)
+            padding = max(
+                self._known_box_min_padding,
+                int(
+                    max(box_width, box_height)
+                    * self._known_box_padding_ratio
+                ),
+            )
+            clipped_x1 = max(0, min(width, x1 - padding))
+            clipped_y1 = max(0, min(height, y1 - padding))
+            clipped_x2 = max(0, min(width, x2 + padding))
+            clipped_y2 = max(0, min(height, y2 + padding))
+            if (
+                clipped_x1 >= clipped_x2
+                or clipped_y1 >= clipped_y2
+            ):
+                continue
+            exclusion_mask[
+                clipped_y1:clipped_y2,
+                clipped_x1:clipped_x2,
+            ] = 255
+        return exclusion_mask
 
     # 清理阈值化后的异常候选区域
     def _clean_candidate_mask(
@@ -341,6 +395,9 @@ class UnknownDetector:
         self,
         frame: np.ndarray,
         road_mask: np.ndarray,
+        known_objects: Optional[
+            List[DetectedObject]
+        ] = None,
     ) -> UnknownDetectionResult:
         start_time = perf_counter()
         input_error = self._validate_input(
@@ -386,6 +443,18 @@ class UnknownDetector:
             )
             anomaly_mask = self._clean_candidate_mask(
                 anomaly_mask
+            )
+            known_exclusion_mask = (
+                self._build_known_exclusion_mask(
+                    frame.shape[:2],
+                    known_objects or [],
+                )
+            )
+            anomaly_mask = cv2.bitwise_and(
+                anomaly_mask,
+                cv2.bitwise_not(
+                    known_exclusion_mask
+                ),
             )
             regions = self._mask_to_unknown_regions(
                 anomaly_mask,

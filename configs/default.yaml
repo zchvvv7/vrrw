@@ -40,6 +40,8 @@ unknown_detector:
   post_processing:
     pixel_threshold: 0.5
     known_mask_threshold: 0.5
+    known_box_padding_ratio: 0.1
+    known_box_min_padding: 4
     min_area_ratio: 0.0002
     max_area_ratio: 0.15
     lower_roi_ratio: 0.25

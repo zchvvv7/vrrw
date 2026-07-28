@@ -3,7 +3,7 @@
 用途: 项目总流程
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-27
+最后修改日期: 2026-07-28
 """
 
 import json
@@ -28,8 +28,7 @@ from src.interface.schemas import RoadSegmentResult
 from src.interface.schemas import UnknownDetectionResult
 from src.modules.known_detector import KnownDetector
 from src.modules.road_segmenter import RoadSegmenter
-# TODO: 恢复未知障碍物检测时取消下一行注释
-# from src.modules.unknown_detector import UnknownDetector
+from src.modules.unknown_detector import UnknownDetector
 from src.utils.live_visualizer import LiveVisualizer
 from src.utils.result_visualizer import draw_result
 
@@ -73,14 +72,12 @@ def setup_logger(log_path: str) -> logging.Logger:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     logger.propagate = False
-
     source_logger = logging.getLogger("src")
     source_logger.setLevel(logging.INFO)
     source_logger.handlers.clear()
     source_logger.addHandler(file_handler)
     source_logger.propagate = False
     return logger
-
 
 # 创建输入源读取器
 def build_reader(
@@ -103,7 +100,6 @@ def build_reader(
         f"Unsupported source_type: {source_type}"
     )
 
-
 # 根据模块状态生成当前帧风险显示信息
 def build_frame_status(
     road_result: RoadSegmentResult,
@@ -114,37 +110,29 @@ def build_frame_status(
 ) -> Tuple[str, str]:
     if road_result.is_unavailable:
         return "unavailable", road_result.error_message
-
     if not known_result.is_successful:
         return "unavailable", known_result.error_message
-
     if (
         unknown_result is not None
         and not unknown_result.is_successful
     ):
         return "unavailable", unknown_result.error_message
-
     if road_result.is_degraded:
         return "degraded", road_result.error_message
-
     if (
         known_result.objects
         and unknown_result is not None
         and unknown_result.regions
     ):
         return "notice", "known_and_unknown_obstacle_detected"
-
     if known_result.objects:
         return "notice", "known_obstacle_detected"
-
     if (
         unknown_result is not None
         and unknown_result.regions
     ):
         return "notice", "unknown_obstacle_detected"
-
     return "safe", "no_obstacle"
-
 
 # 生成单帧JSON记录
 def build_frame_record(
@@ -237,7 +225,6 @@ def build_frame_record(
         },
     }
 
-
 # 保存JSON结果
 def save_result_json(
     json_path: str,
@@ -266,7 +253,6 @@ def save_result_json(
             ensure_ascii=False,
             indent=2,
         )
-
 
 # 运行道路风险处理流程
 def run_pipeline(config_path: str) -> None:
@@ -307,12 +293,11 @@ def run_pipeline(config_path: str) -> None:
             config["road_segmenter"]["config_path"]
         ),
     )
-    # TODO: 恢复未知障碍物检测时取消下面三行注释
-    # unknown_detector = UnknownDetector(
-    #     config=config["unknown_detector"],
-    # )
     known_detector = KnownDetector(
         config=config["known_detector"],
+    )
+    unknown_detector = UnknownDetector(
+        config=config["unknown_detector"],
     )
     reader = build_reader(config)
     writer = None
@@ -353,48 +338,42 @@ def run_pipeline(config_path: str) -> None:
             known_result = known_detector.predict(
                 frame=frame,
             )
-            # TODO: 恢复未知障碍物检测时取消下面四行注释
-            # unknown_result = unknown_detector.predict(
-            #     frame=frame,
-            #     road_mask=road_result.mask,
-            # )
+            unknown_result = unknown_detector.predict(
+                frame=frame,
+                road_mask=road_result.mask,
+                known_objects=known_result.objects,
+            )
             risk_level, major_reason = build_frame_status(
                 road_result,
                 known_result,
-                # unknown_result,
-                unknown_result=None,
+                unknown_result,
             )
             if not known_result.is_successful:
                 logger.error(
                     "Known detection failed: %s",
                     known_result.error_message,
                 )
-            # TODO: 恢复未知障碍物检测时取消下面五行注释
-            # if not unknown_result.is_successful:
-            #     logger.error(
-            #         "Unknown detection failed: %s",
-            #         unknown_result.error_message,
-            #     )
+            if not unknown_result.is_successful:
+                logger.error(
+                    "Unknown detection failed: %s",
+                    unknown_result.error_message,
+                )
             result = FrameResult(
                 frame_id=frame_id,
                 road_mask=road_result.mask,
                 known_objects=known_result.objects,
-                # unknown_regions=unknown_result.regions,
-                unknown_regions=[],
+                unknown_regions=unknown_result.regions,
                 risk_level=risk_level,
                 major_reason=major_reason,
-                # anomaly_mask=(
-                #     unknown_result.anomaly_mask
-                # ),
-                anomaly_mask=None,
+                anomaly_mask=(
+                    unknown_result.anomaly_mask
+                ),
             )
             output_frame = draw_result(frame, result)
             writer.write(output_frame)
 
             if live_visualizer is not None:
-                should_continue = live_visualizer.show(
-                    output_frame
-                )
+                should_continue = live_visualizer.show(output_frame)
                 if not should_continue:
                     interrupted = True
                     break
@@ -403,8 +382,7 @@ def run_pipeline(config_path: str) -> None:
                     frame_id=frame_id,
                     road_result=road_result,
                     known_result=known_result,
-                    # unknown_result=unknown_result,
-                    unknown_result=None,
+                    unknown_result=unknown_result,
                     risk_level=risk_level,
                     major_reason=major_reason,
                 )
@@ -430,9 +408,7 @@ def run_pipeline(config_path: str) -> None:
             interrupted=interrupted,
         )
         if interrupted:
-            logger.info(
-                "Result saved after interruption."
-            )
+            logger.info("Result saved after interruption.")
         else:
             logger.info("Pipeline finished.")
         logger.info(

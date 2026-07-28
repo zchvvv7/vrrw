@@ -27,6 +27,16 @@ known_detector:
     - pothole
     - vehicle
 
+distance_estimator:
+  enabled: false
+  method: "not_implemented"
+  model_version: "unimplemented"
+
+corridor_predictor:
+  enabled: false
+  method: "not_implemented"
+  model_version: "unimplemented"
+
 unknown_detector:
   backend: "mask2anomaly"
 

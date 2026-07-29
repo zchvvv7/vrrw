@@ -78,7 +78,6 @@ Apple Silicon不支持项目当前使用的CUDA扩展，只适合运行不依赖
 | 组件 | 版本 |
 |---|---|
 | Python | 3.10 |
-| 系统CUDA | 12.0，可以保留 |
 | Conda CUDA Toolkit | 11.8 |
 | PyTorch | 2.0.1+cu118 |
 | Torchvision | 0.15.2+cu118 |
@@ -89,10 +88,6 @@ Apple Silicon不支持项目当前使用的CUDA扩展，只适合运行不依赖
 | Hugging Face Hub | 0.20.3 |
 | Detectron2 | 0.6，本地源码安装 |
 
-系统显示CUDA 12.0并不代表必须安装cu120版PyTorch。NVIDIA驱动通常可以向下
-兼容CUDA 11.8运行时。本项目使用PyTorch cu118，并使用Conda环境内的CUDA
-Toolkit 11.8编译自定义扩展。
-
 
 #### 2. 检查Linux和GPU
 
@@ -102,18 +97,12 @@ nvidia-smi
 nvcc --version
 ```
 
-如果系统`nvcc`显示CUDA 12.0，可以继续。后续会在Conda环境中安装11.8版本，
-不会删除系统CUDA。
-
 编译CUDA扩展需要C/C++编译器、CMake和Ninja。Ubuntu系统可以执行：
 
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake git ninja-build
 ```
-
-没有`sudo`权限时，需要联系服务器管理员提供这些工具，或者加载服务器已有
-的编译工具模块。
 
 
 #### 3. 创建独立Conda环境
@@ -145,12 +134,6 @@ python -m pip install \
   "setuptools==69.5.1" \
   "wheel>=0.40" \
   "ninja>=1.11"
-```
-
-验证：
-
-```bash
-python -c 'import pkg_resources; print("pkg_resources: OK")'
 ```
 
 
@@ -210,33 +193,6 @@ python -m pip install --no-cache-dir \
   --index-url https://download.pytorch.org/whl/cu118
 ```
 
-验证PyTorch、CUDA运行时和GPU：
-
-```bash
-python - <<'PY'
-import torch
-from torch.utils.cpp_extension import CUDA_HOME
-
-print("PyTorch:", torch.__version__)
-print("PyTorch CUDA:", torch.version.cuda)
-print("CUDA_HOME:", CUDA_HOME)
-print("GPU available:", torch.cuda.is_available())
-if torch.cuda.is_available():
-    print("GPU:", torch.cuda.get_device_name(0))
-PY
-```
-
-预期关键结果：
-
-```text
-PyTorch: 2.0.1+cu118
-PyTorch CUDA: 11.8
-GPU available: True
-```
-
-这里`PyTorch CUDA`显示11.8，而系统`nvcc --version`最初显示12.0，是正常
-现象。
-
 
 #### 6. 安装Python依赖并锁定冲突版本
 
@@ -258,91 +214,13 @@ cd ~/vrrw
 python -m pip install -r requirements.txt
 ```
 
-不要为该项目安装NumPy 2.x。PyTorch 2.0.1与NumPy 2.x组合可能出现：
 
-```text
-RuntimeError: Could not infer dtype of numpy.float32
-```
-
-不要安装过新的Transformers。新版本可能将PyTorch 2.0.1判断为不受支持，
-并显示具有误导性的错误：
-
-```text
-SegformerImageProcessor requires the PyTorch library but it was not found
-```
-
-安装完成后确认版本：
-
-```bash
-python - <<'PY'
-import cv2
-import numpy
-import torch
-import torchvision
-import transformers
-
-print("NumPy:", numpy.__version__)
-print("OpenCV:", cv2.__version__)
-print("PyTorch:", torch.__version__)
-print("Torchvision:", torchvision.__version__)
-print("Transformers:", transformers.__version__)
-print(torch.as_tensor(numpy.float32(1.0)))
-PY
-```
-
-最后一行应正常输出`tensor(1.)`。
-
-
-#### 7. 从本地源码安装Detectron2
-
-服务器无法连接GitHub时，需要提前在其他电脑下载Detectron2源码并上传。
-本教程假定目录结构如下：
-
-```text
-用户主目录/
-├── detectron2/
-└── vrrw/
-```
-
-安装本地Detectron2：
-
-```bash
-cd ~/vrrw
-FORCE_CUDA=1 python -m pip install -e ~/detectron2
-```
-
-验证：
-
-```bash
-python - <<'PY'
-import torch
-import detectron2
-
-print("PyTorch:", torch.__version__)
-print("Detectron2:", detectron2.__version__)
-print("Detectron2 import: OK")
-PY
-```
-
-Detectron2必须在最终PyTorch版本确定后安装。更换PyTorch后，原先编译的
-Detectron2不可继续使用。
-
-
-#### 8. 编译MultiScaleDeformableAttention
+#### 7. 编译MultiScaleDeformableAttention
 
 项目真实构建脚本位于：
 
 ```text
 mask2former/modeling/pixel_decoder/ops/make.sh
-```
-
-编译前再次检查：
-
-```bash
-cd ~/vrrw
-echo "$CUDA_HOME"
-which nvcc
-nvcc --version
 ```
 
 开始编译：
@@ -353,41 +231,18 @@ MAX_JOBS=4 FORCE_CUDA=1 sh make.sh
 cd ~/vrrw
 ```
 
-`MAX_JOBS=4`用于降低编译期间的内存压力。服务器内存较小时可以改为
-`MAX_JOBS=2`。
 
-验证扩展。应先导入PyTorch，再导入CUDA扩展：
-
-```bash
-python -c 'import torch; import MultiScaleDeformableAttention; print("MSDeformAttn OK")'
-```
-
-如果出现：
-
-```text
-ImportError: libc10.so: cannot open shared object file
-```
-
-说明动态库搜索路径没有生效。重新执行：
-
-```bash
-export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:$CONDA_PREFIX/lib64:$CONDA_PREFIX/lib/python3.10/site-packages/torch/lib:${LD_LIBRARY_PATH:-}"
-```
-
-然后重新运行验证命令。
-
-
-#### 9. 放置模型权重
+#### 8. 放置模型权重
 
 项目使用三套模型，文件扩展名并不相同：
 
-| 模块 | 参数文件 |
-|---|---|
-| YOLO已知障碍物检测 | `checkpoints/yolo_best.pt` |
+| 模块 | 参数文件                                            |
+|---|-------------------------------------------------|
+| YOLO已知障碍物检测 | `checkpoints/yolo_best.pt`                      |
 | Mask2Anomaly未知障碍物检测 | `checkpoints/mask2anomaly/best_contrastive.pth` |
-| SegFormer道路分割 | `pytorch_model.bin`和项目微调`.pth` |
+| SegFormer道路分割 | `checkpoints/segformer_mit-b2_cityscapes.pth`   |
 
-#### 10. 运行完整流程
+#### 9. 运行完整流程
 
 将测试视频放到：
 
@@ -398,8 +253,6 @@ data/raw/demo.mp4
 确认`configs/default.yaml`中的输入路径正确，然后执行：
 
 ```bash
-TRANSFORMERS_OFFLINE=1 \
-HF_HUB_OFFLINE=1 \
 python -m src.main
 ```
 

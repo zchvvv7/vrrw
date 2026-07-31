@@ -3,7 +3,7 @@
 用途: 将道路区域、检测框和风险等级画到图像上
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-28
+最后修改日期: 2026-07-31
 """
 
 import cv2
@@ -42,6 +42,38 @@ def _draw_corridor_mask(
     output[corridor_pixels] = blended_output[
         corridor_pixels
     ]
+
+    if (
+        result.corridor_polygon is not None
+        and len(result.corridor_polygon) >= 3
+    ):
+        polygon = np.asarray(
+            result.corridor_polygon,
+            dtype=np.int32,
+        ).reshape((-1, 1, 2))
+        cv2.polylines(
+            output,
+            [polygon],
+            True,
+            (255, 180, 0),
+            2,
+        )
+
+    if (
+        result.corridor_centerline is not None
+        and len(result.corridor_centerline) >= 2
+    ):
+        centerline = np.asarray(
+            result.corridor_centerline,
+            dtype=np.int32,
+        ).reshape((-1, 1, 2))
+        cv2.polylines(
+            output,
+            [centerline],
+            False,
+            (255, 255, 255),
+            2,
+        )
     return output
 
 

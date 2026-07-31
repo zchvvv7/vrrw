@@ -33,9 +33,21 @@ distance_estimator:
   model_version: "unimplemented"
 
 corridor_predictor:
-  enabled: false
-  method: "not_implemented"
-  model_version: "unimplemented"
+  enabled: true
+  method: "road_mask_geometry"
+  model_version: "v1.0"
+  min_road_width: 50
+  max_centerline_points: 200
+  temporal_window: 5
+  confidence_decay: 0.9
+  boundary_sample_step: 2
+  min_valid_rows: 10
+  smoothing_kernel: 5
+  obstacle_edge_threshold: 50
+  obstacle_min_area_ratio: 0.001
+  obstacle_risk_weight: 0.5
+  direction_risk_weight: 0.3
+  width_risk_weight: 0.2
 
 unknown_detector:
   backend: "mask2anomaly"

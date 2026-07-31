@@ -42,12 +42,10 @@ corridor_predictor:
   confidence_decay: 0.9
   boundary_sample_step: 2
   min_valid_rows: 10
-  smoothing_kernel: 5
-  obstacle_edge_threshold: 50
-  obstacle_min_area_ratio: 0.001
-  obstacle_risk_weight: 0.5
+  corridor_width_ratio: 0.8
+  geometry_risk_weight: 0.4
   direction_risk_weight: 0.3
-  width_risk_weight: 0.2
+  width_risk_weight: 0.3
 
 unknown_detector:
   backend: "mask2anomaly"

@@ -3,7 +3,7 @@
 用途: 预测视频图像空间中的自车行驶走廊，检测碰撞风险，给出方向建议
 作者: 温涵清
 创建日期: 2026-07-28
-最后修改日期: 2026-07-30
+最后修改日期: 2026-07-31
 """
 
 from collections import deque
@@ -30,7 +30,7 @@ MAX_HISTORY_SIZE = 10
 
 
 class CorridorPredictor(CorridorPredictorInterface):
-    """预测自车行驶走廊，检测障碍物碰撞风险，建议行驶方向"""
+    """预测自车行驶走廊，估算几何风险，建议行驶方向"""
 
     # 初始化走廊预测器并解析配置参数
     def __init__(self, config: Optional[dict] = None) -> None:
@@ -61,23 +61,17 @@ class CorridorPredictor(CorridorPredictorInterface):
         self._min_valid_rows = int(
             config.get("min_valid_rows", 10)
         )
-        self._smoothing_kernel = int(
-            config.get("smoothing_kernel", 5)
+        self._corridor_width_ratio = float(
+            config.get("corridor_width_ratio", 0.5)
         )
-        self._obstacle_edge_threshold = int(
-            config.get("obstacle_edge_threshold", 50)
-        )
-        self._obstacle_min_area_ratio = float(
-            config.get("obstacle_min_area_ratio", 0.001)
-        )
-        self._obstacle_risk_weight = float(
-            config.get("obstacle_risk_weight", 0.5)
+        self._geometry_risk_weight = float(
+            config.get("geometry_risk_weight", 0.4)
         )
         self._direction_risk_weight = float(
             config.get("direction_risk_weight", 0.3)
         )
         self._width_risk_weight = float(
-            config.get("width_risk_weight", 0.2)
+            config.get("width_risk_weight", 0.3)
         )
         self._history_buffer: Deque[dict] = deque(
             maxlen=MAX_HISTORY_SIZE
@@ -210,7 +204,7 @@ class CorridorPredictor(CorridorPredictorInterface):
             is_enabled=True,
         )
 
-    # 核心算法：从道路掩码中提取走廊、检测风险、计算置信度
+    # 核心算法：从道路掩码中提取走廊、估算几何风险、计算置信度
     def _predict_corridor(
         self,
         frame: np.ndarray,
@@ -237,24 +231,30 @@ class CorridorPredictor(CorridorPredictorInterface):
 
         centerline = self._smooth_centerline(centerline)
 
+        corridor_boundaries = (
+            self._narrow_corridor_boundaries(
+                left_boundary, right_boundary, valid_rows
+            )
+        )
+
         corridor_polygon = self._build_corridor_polygon(
-            centerline, left_boundary, right_boundary, valid_rows
+            corridor_boundaries, valid_rows
         )
 
         corridor_mask = self._build_corridor_mask(
             corridor_polygon, height, width
         )
 
-        corridor_mask = self._refine_corridor_with_obstacles(
-            corridor_mask, frame, road_mask
+        corridor_mask = self._smooth_corridor_edges(
+            corridor_mask
         )
 
         direction, direction_risk = self._analyze_direction(
             centerline, height, width
         )
 
-        obstacle_risk = self._estimate_obstacle_risk(
-            corridor_mask, frame, height, width
+        geometry_risk = self._estimate_geometry_risk(
+            valid_rows, height, width
         )
 
         width_risk = self._estimate_width_risk(
@@ -262,7 +262,7 @@ class CorridorPredictor(CorridorPredictorInterface):
         )
 
         raw_confidence = self._compute_confidence(
-            obstacle_risk, direction_risk, width_risk
+            geometry_risk, direction_risk, width_risk
         )
 
         smoothed_confidence = self._temporal_smooth_confidence(
@@ -400,15 +400,42 @@ class CorridorPredictor(CorridorPredictorInterface):
 
         return smoothed
 
-    # 构建走廊多边形（底部→顶部→返回底部）
-    def _build_corridor_polygon(
+    # 将道路边界按比例收窄为走廊边界（以道路中心为基准）
+    def _narrow_corridor_boundaries(
         self,
-        centerline: List[Tuple[int, int]],
         left_boundary: dict,
         right_boundary: dict,
         valid_rows: List[int],
+    ) -> Tuple[dict, dict]:
+        corridor_left: dict = {}
+        corridor_right: dict = {}
+
+        for y in sorted(valid_rows):
+            lx = left_boundary.get(y)
+            rx = right_boundary.get(y)
+            if lx is None or rx is None:
+                continue
+            road_center = (lx + rx) / 2.0
+            half_width = (
+                (rx - lx) / 2.0
+                * self._corridor_width_ratio
+            )
+            cx = int(road_center - half_width)
+            dx = int(road_center + half_width)
+            corridor_left[y] = cx
+            corridor_right[y] = dx
+
+        return corridor_left, corridor_right
+
+    # 构建走廊多边形（底部→顶部→返回底部）
+    def _build_corridor_polygon(
+        self,
+        corridor_boundaries: Tuple[dict, dict],
+        valid_rows: List[int],
     ) -> List[Tuple[int, int]]:
-        if not centerline:
+        corridor_left, corridor_right = corridor_boundaries
+
+        if not valid_rows:
             return []
 
         sorted_rows = sorted(valid_rows)
@@ -416,12 +443,15 @@ class CorridorPredictor(CorridorPredictorInterface):
         right_points: List[Tuple[int, int]] = []
 
         for y in sorted_rows:
-            lx = left_boundary.get(y)
-            rx = right_boundary.get(y)
+            lx = corridor_left.get(y)
+            rx = corridor_right.get(y)
             if lx is not None:
                 left_points.append((lx, y))
             if rx is not None:
                 right_points.append((rx, y))
+
+        if not left_points or not right_points:
+            return []
 
         polygon: List[Tuple[int, int]] = []
         for p in reversed(left_points):
@@ -430,6 +460,28 @@ class CorridorPredictor(CorridorPredictorInterface):
             polygon.append(p)
 
         return polygon
+
+    # 对走廊掩码进行形态学平滑，获得平滑边缘
+    def _smooth_corridor_edges(
+        self,
+        corridor_mask: np.ndarray,
+    ) -> np.ndarray:
+        if np.sum(corridor_mask > 0) == 0:
+            return corridor_mask
+
+        kernel = np.ones((5, 5), dtype=np.uint8)
+        smoothed = cv2.morphologyEx(
+            corridor_mask,
+            cv2.MORPH_CLOSE,
+            kernel,
+        )
+        smoothed = cv2.morphologyEx(
+            smoothed,
+            cv2.MORPH_OPEN,
+            kernel,
+        )
+
+        return smoothed
 
     # 用多边形填充生成走廊掩码
     def _build_corridor_mask(
@@ -447,112 +499,6 @@ class CorridorPredictor(CorridorPredictorInterface):
         )
         cv2.fillPoly(mask, [contour], 255)
         return mask
-
-    # 在走廊底部区域检测明显障碍物并扣除碰撞区域
-    def _refine_corridor_with_obstacles(
-        self,
-        corridor_mask: np.ndarray,
-        frame: np.ndarray,
-        road_mask: np.ndarray,
-    ) -> np.ndarray:
-        height, width = corridor_mask.shape[:2]
-        corridor_area = np.sum(corridor_mask > 0)
-        if corridor_area == 0:
-            return corridor_mask
-
-        bottom_start = int(height * 0.5)
-        bottom_corridor = corridor_mask[bottom_start:, :]
-        if np.sum(bottom_corridor > 0) == 0:
-            return corridor_mask
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (7, 7), 0)
-
-        high_threshold = max(
-            self._obstacle_edge_threshold * 2, 100
-        )
-        edges = cv2.Canny(
-            blurred,
-            high_threshold // 2,
-            high_threshold,
-        )
-
-        bottom_edges = edges[bottom_start:, :]
-        bottom_road = road_mask[bottom_start:, :]
-
-        corridor_edges = cv2.bitwise_and(
-            bottom_edges, bottom_corridor
-        )
-
-        kernel = np.ones((5, 5), dtype=np.uint8)
-        dilated_edges = cv2.dilate(
-            corridor_edges, kernel, iterations=3
-        )
-
-        obstacle_candidates = cv2.bitwise_and(
-            dilated_edges, bottom_road
-        )
-
-        contours, _ = cv2.findContours(
-            obstacle_candidates,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
-        )
-
-        min_area = max(
-            10,
-            int(
-                height * width
-                * self._obstacle_min_area_ratio
-                * 2
-            ),
-        )
-
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < min_area:
-                continue
-            x, y, w, h = cv2.boundingRect(contour)
-            if w < 8 or h < 8:
-                continue
-            pad_x = max(4, w // 3)
-            pad_y = max(4, h // 3)
-            x1 = max(0, x - pad_x)
-            y1 = max(
-                bottom_start,
-                y + bottom_start - pad_y,
-            )
-            x2 = min(width, x + w + pad_x)
-            y2 = min(
-                height,
-                y + bottom_start + h + pad_y,
-            )
-
-            obstacle_region_mask = np.zeros_like(corridor_mask)
-            cv2.rectangle(
-                obstacle_region_mask,
-                (x1, y1),
-                (x2, y2),
-                255,
-                -1,
-            )
-            overlap = cv2.bitwise_and(
-                obstacle_region_mask, corridor_mask
-            )
-            overlap_area = np.sum(overlap > 0)
-            if overlap_area > 0:
-                corridor_mask = cv2.bitwise_and(
-                    corridor_mask,
-                    cv2.bitwise_not(overlap),
-                )
-
-        corridor_mask = cv2.morphologyEx(
-            corridor_mask,
-            cv2.MORPH_CLOSE,
-            kernel,
-        )
-
-        return corridor_mask
 
     # 分析中心线的方向和弯道风险
     def _analyze_direction(
@@ -593,8 +539,9 @@ class CorridorPredictor(CorridorPredictorInterface):
             )
 
         centerline_xs = [p[0] for p in centerline]
-        x_range = max(centerline_xs) - min(centerline_xs)
-        normalized_shift = abs(second_cx - center_x) / (width / 2.0)
+        normalized_shift = (
+            abs(second_cx - center_x) / (width / 2.0)
+        )
         direction_risk = max(
             direction_risk,
             min(1.0, normalized_shift * 0.5),
@@ -602,50 +549,31 @@ class CorridorPredictor(CorridorPredictorInterface):
 
         return direction, float(direction_risk)
 
-    # 基于走廊与障碍物重叠估算风险
-    def _estimate_obstacle_risk(
+    # 基于道路几何特征估算风险（连续性、宽度稳定性）
+    def _estimate_geometry_risk(
         self,
-        corridor_mask: np.ndarray,
-        frame: np.ndarray,
+        valid_rows: List[int],
         height: int,
         width: int,
     ) -> float:
-        corridor_area = np.sum(corridor_mask > 0)
-        if corridor_area == 0:
+        if not valid_rows:
             return 1.0
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-        gradient_mag = cv2.magnitude(sobel_x, sobel_y)
-
-        corridor_gradient = gradient_mag[corridor_mask > 0]
-        if len(corridor_gradient) == 0:
-            return 0.1
-
-        high_gradient_ratio = np.mean(
-            corridor_gradient > self._obstacle_edge_threshold
+        row_coverage = len(valid_rows) / max(
+            1,
+            height // self._boundary_sample_step,
         )
+        coverage_risk = 1.0 - min(1.0, row_coverage * 1.5)
 
-        bottom_region = corridor_mask[
-            int(height * 0.6):, :
-        ]
-        if np.sum(bottom_region > 0) > 0:
-            bottom_gray = gray[int(height * 0.6):, :]
-            bottom_gradients = gradient_mag[
-                int(height * 0.6):, :
-            ][bottom_region > 0]
-            if len(bottom_gradients) > 0:
-                bottom_risk = np.mean(
-                    bottom_gradients > self._obstacle_edge_threshold
-                )
-                high_gradient_ratio = max(
-                    high_gradient_ratio, bottom_risk
-                )
+        if len(valid_rows) >= 2:
+            diffs = np.diff(valid_rows)
+            gap_count = np.sum(diffs > self._boundary_sample_step * 2)
+            gap_risk = min(1.0, gap_count / max(1, len(diffs)))
+        else:
+            gap_risk = 0.5
 
-        risk = min(1.0, high_gradient_ratio * 3.0)
-        return float(risk)
+        risk = 0.6 * coverage_risk + 0.4 * gap_risk
+        return float(min(1.0, max(0.0, risk)))
 
     # 基于走廊宽度变化估算风险
     def _estimate_width_risk(
@@ -664,11 +592,11 @@ class CorridorPredictor(CorridorPredictorInterface):
             return 1.0
 
         ratio = corridor_area / road_area
-        if ratio > 0.6:
+        if ratio > 0.5:
             return 0.1
-        elif ratio > 0.4:
+        elif ratio > 0.3:
             return 0.3
-        elif ratio > 0.2:
+        elif ratio > 0.15:
             return 0.6
         else:
             return 0.9
@@ -676,12 +604,12 @@ class CorridorPredictor(CorridorPredictorInterface):
     # 综合计算置信度（1.0=安全，0.0=危险）
     def _compute_confidence(
         self,
-        obstacle_risk: float,
+        geometry_risk: float,
         direction_risk: float,
         width_risk: float,
     ) -> float:
         weighted_risk = (
-            obstacle_risk * self._obstacle_risk_weight
+            geometry_risk * self._geometry_risk_weight
             + direction_risk * self._direction_risk_weight
             + width_risk * self._width_risk_weight
         )

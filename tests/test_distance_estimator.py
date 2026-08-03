@@ -197,6 +197,28 @@ def test_invalid_bbox_returns_none_distance() -> None:
     assert result.known_objects[1].distance is None
 
 
+# 测试无物体高度类别可以回退到路面接地点距离
+def test_missing_class_height_uses_ground_projection() -> None:
+    frame = np.zeros(
+        (200, 100, 3),
+        dtype=np.uint8,
+    )
+    pothole = DetectedObject(
+        class_name="pothole",
+        bbox=(30, 120, 70, 160),
+        confidence=0.9,
+    )
+
+    result = build_estimator().estimate(
+        frame=frame,
+        frame_id=3,
+        known_objects=[pothole],
+    )
+
+    assert result.error_code == SUCCESS
+    assert result.known_objects[0].distance is not None
+
+
 # 测试近中远距离绝对误差和相对误差
 def test_near_mid_far_distance_errors() -> None:
     # 选用整数框高，使真值距离恰好为 f*H/h
@@ -238,4 +260,3 @@ def test_near_mid_far_distance_errors() -> None:
         rel_error = abs_error / true_distance
         assert abs_error < 0.5
         assert rel_error < 0.05
-

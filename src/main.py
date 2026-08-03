@@ -26,11 +26,14 @@ from src.interface.schemas import CorridorPredictionResult
 from src.interface.schemas import DistanceEstimationResult
 from src.interface.schemas import FrameResult
 from src.interface.schemas import KnownDetectionResult
+from src.interface.schemas import RiskEvaluationResult
 from src.interface.schemas import RoadSegmentResult
+from src.interface.schemas import SystemStatus
 from src.interface.schemas import UnknownDetectionResult
 from src.modules.corridor_predictor import CorridorPredictor
 from src.modules.distance_estimator import DistanceEstimator
 from src.modules.known_detector import KnownDetector
+from src.modules.risk_evaluator import RiskEvaluator
 from src.modules.road_segmenter import RoadSegmenter
 from src.modules.unknown_detector import UnknownDetector
 from src.utils.live_visualizer import LiveVisualizer
@@ -138,6 +141,33 @@ def build_frame_status(
         return "notice", "unknown_obstacle_detected"
     return "safe", "no_obstacle"
 
+
+# 汇总各感知模块状态供风险评估使用
+def build_risk_system_status(
+    road_result: RoadSegmentResult,
+    known_result: KnownDetectionResult,
+    unknown_result: UnknownDetectionResult,
+    distance_result: DistanceEstimationResult,
+    corridor_result: CorridorPredictionResult,
+) -> str:
+    if road_result.is_unavailable:
+        return SystemStatus.UNAVAILABLE
+    if not known_result.is_successful:
+        return SystemStatus.UNAVAILABLE
+    if not unknown_result.is_successful:
+        return SystemStatus.UNAVAILABLE
+    if not corridor_result.is_successful:
+        return SystemStatus.UNAVAILABLE
+    if road_result.is_degraded:
+        return SystemStatus.DEGRADED
+    if not distance_result.is_successful:
+        return SystemStatus.DEGRADED
+    if not distance_result.is_enabled:
+        return SystemStatus.DEGRADED
+    if not corridor_result.is_enabled:
+        return SystemStatus.DEGRADED
+    return SystemStatus.NORMAL
+
 # 生成单帧JSON记录
 def build_frame_record(
     frame_id: int,
@@ -151,6 +181,9 @@ def build_frame_record(
     ] = None,
     corridor_result: Optional[
         CorridorPredictionResult
+    ] = None,
+    risk_result: Optional[
+        RiskEvaluationResult
     ] = None,
 ) -> dict:
     return {
@@ -301,10 +334,70 @@ def build_frame_record(
                 ),
             }
         ),
-        "risk": {
-            "risk_level": risk_level,
-            "major_reason": major_reason,
-        },
+        "risk": (
+            {
+                "enabled": risk_result.is_enabled,
+                "is_valid": risk_result.is_valid,
+                "system_status": (
+                    risk_result.system_status
+                ),
+                "model_version": (
+                    risk_result.model_version
+                ),
+                "risk_level": risk_result.risk_level,
+                "major_reason": risk_result.major_reason,
+                "corridor_overlap": (
+                    risk_result.corridor_overlap
+                ),
+                "ttc": risk_result.ttc,
+                "inference_time_ms": (
+                    risk_result.inference_time_ms
+                ),
+                "error_code": risk_result.error_code,
+                "error_message": (
+                    risk_result.error_message
+                ),
+                "obstacles": [
+                    {
+                        "object_id": item.object_id,
+                        "source": item.source,
+                        "class_name": item.class_name,
+                        "bbox": list(item.bbox),
+                        "distance": item.distance,
+                        "corridor_overlap": (
+                            item.corridor_overlap
+                        ),
+                        "spatial_relation": (
+                            item.spatial_relation
+                        ),
+                        "ttc": item.ttc,
+                        "risk_level": item.risk_level,
+                        "major_reason": item.major_reason,
+                        "stable_frames": (
+                            item.stable_frames
+                        ),
+                    }
+                    for item in risk_result.obstacle_risks
+                ],
+            }
+            if risk_result is not None
+            else {
+                "enabled": False,
+                "is_valid": False,
+                "system_status": "unavailable",
+                "model_version": "unavailable",
+                "risk_level": risk_level,
+                "major_reason": major_reason,
+                "corridor_overlap": 0.0,
+                "ttc": None,
+                "inference_time_ms": 0.0,
+                "error_code": 0,
+                "error_message": (
+                    "Risk evaluation result is absent."
+                ),
+                "obstacles": [],
+            }
+        ),
     }
 
 # 保存JSON结果
@@ -384,6 +477,9 @@ def run_pipeline(config_path: str) -> None:
     corridor_predictor = CorridorPredictor(
         config=config.get("corridor_predictor", {}),
     )
+    risk_evaluator = RiskEvaluator(
+        config=config.get("risk_evaluator", {}),
+    )
     unknown_detector = UnknownDetector(
         config=config["unknown_detector"],
     )
@@ -397,6 +493,7 @@ def run_pipeline(config_path: str) -> None:
     try:
         reader.open()
         corridor_predictor.reset()
+        risk_evaluator.reset()
         source_info = reader.get_info()
         fps = source_info["fps"]
         width = source_info["width"]
@@ -452,11 +549,23 @@ def run_pipeline(config_path: str) -> None:
                 frame_id=frame_id,
                 road_mask=road_result.mask,
             )
-            risk_level, major_reason = build_frame_status(
-                road_result,
-                known_result,
-                unknown_result,
+            risk_system_status = build_risk_system_status(
+                road_result=road_result,
+                known_result=known_result,
+                unknown_result=unknown_result,
+                distance_result=distance_result,
+                corridor_result=corridor_result,
             )
+            risk_result = risk_evaluator.evaluate(
+                frame_id=frame_id,
+                fps=fps,
+                corridor_result=corridor_result,
+                known_objects=known_result.objects,
+                unknown_regions=unknown_result.regions,
+                system_status=risk_system_status,
+            )
+            risk_level = risk_result.risk_level
+            major_reason = risk_result.major_reason
             if not known_result.is_successful:
                 logger.error(
                     "Known detection failed: %s",
@@ -477,6 +586,11 @@ def run_pipeline(config_path: str) -> None:
                     "Corridor prediction failed: %s",
                     corridor_result.error_message,
                 )
+            if not risk_result.is_successful:
+                logger.error(
+                    "Risk evaluation failed: %s",
+                    risk_result.error_message,
+                )
             result = FrameResult(
                 frame_id=frame_id,
                 road_mask=road_result.mask,
@@ -496,6 +610,13 @@ def run_pipeline(config_path: str) -> None:
                 corridor_centerline=(
                     corridor_result.centerline
                 ),
+                obstacle_risks=(
+                    risk_result.obstacle_risks
+                ),
+                risk_system_status=(
+                    risk_result.system_status
+                ),
+                risk_is_valid=risk_result.is_valid,
             )
             output_frame = draw_result(frame, result)
             writer.write(output_frame)
@@ -515,6 +636,7 @@ def run_pipeline(config_path: str) -> None:
                     major_reason=major_reason,
                     distance_result=distance_result,
                     corridor_result=corridor_result,
+                    risk_result=risk_result,
                 )
             )
     except KeyboardInterrupt:

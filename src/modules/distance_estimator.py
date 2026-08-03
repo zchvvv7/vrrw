@@ -315,7 +315,11 @@ class DistanceEstimator(DistanceEstimatorInterface):
         _x1, y1, _x2, y2 = bbox
         bbox_height = y2 - y1
         if bbox_height < self._min_bbox_height_px:
-            return None
+            return self._estimate_ground_distance(
+                bbox=bbox,
+                frame_width=frame_width,
+                frame_height=frame_height,
+            )
 
         class_key = (
             detected_object.class_name.lower().strip()
@@ -324,7 +328,11 @@ class DistanceEstimator(DistanceEstimatorInterface):
             class_key
         )
         if real_height is None or real_height <= 0.0:
-            return None
+            return self._estimate_ground_distance(
+                bbox=bbox,
+                frame_width=frame_width,
+                frame_height=frame_height,
+            )
         if self._focal_length_px <= 0.0:
             return None
 

@@ -3,7 +3,7 @@
 用途: 定义系统各模块之间传递的数据结构
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-28
+最后修改日期: 2026-08-03
 """
 
 from dataclasses import dataclass
@@ -68,6 +68,68 @@ class UnknownRegion:
     object_id: Optional[str] = None
     area: Optional[int] = None
     mask_rle: Optional[dict] = None
+
+
+@dataclass
+class ObstacleRisk:
+    """表示单个障碍物与自车行驶走廊的风险关系"""
+
+    object_id: str
+    source: str
+    class_name: Optional[str]
+    bbox: Tuple[int, int, int, int]
+    distance: Optional[float]
+    corridor_overlap: float
+    spatial_relation: str
+    ttc: Optional[float]
+    risk_level: str
+    major_reason: str
+    stable_frames: int
+
+
+@dataclass
+class RiskEvaluationResult:
+    """表示视频当前帧的空间冲突与风险评估结果"""
+
+    risk_level: str
+    major_reason: str
+    obstacle_risks: List[ObstacleRisk]
+    system_status: str
+    is_valid: bool
+    inference_time_ms: float
+    error_code: int
+    error_message: str
+    model_version: str
+    is_enabled: bool
+
+    # 判断风险评估是否执行成功或已按配置关闭
+    @property
+    def is_successful(self) -> bool:
+        return self.error_code == 0
+
+    # 返回当前帧全部障碍物中的最小有效TTC
+    @property
+    def ttc(self) -> Optional[float]:
+        valid_values = [
+            item.ttc
+            for item in self.obstacle_risks
+            if item.ttc is not None
+        ]
+        if not valid_values:
+            return None
+        return float(min(valid_values))
+
+    # 返回当前帧全部障碍物中的最大走廊交叠率
+    @property
+    def corridor_overlap(self) -> float:
+        if not self.obstacle_risks:
+            return 0.0
+        return float(
+            max(
+                item.corridor_overlap
+                for item in self.obstacle_risks
+            )
+        )
 
 
 class SystemStatus:
@@ -175,3 +237,6 @@ class FrameResult:
     corridor_mask: Optional[np.ndarray] = None
     corridor_polygon: Optional[List[Tuple[int, int]]] = None
     corridor_centerline: Optional[List[Tuple[int, int]]] = None
+    obstacle_risks: Optional[List[ObstacleRisk]] = None
+    risk_system_status: str = SystemStatus.NORMAL
+    risk_is_valid: bool = True

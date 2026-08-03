@@ -35,6 +35,8 @@ distance_estimator:
   min_bbox_height_px: 8
   min_distance_m: 0.3
   max_distance_m: 80.0
+  camera_height_m: 1.50
+  horizon_ratio: 0.50
   class_heights_m:
     cone: 0.70
     barrier: 1.00
@@ -55,6 +57,26 @@ corridor_predictor:
   geometry_risk_weight: 0.4
   direction_risk_weight: 0.3
   width_risk_weight: 0.3
+
+risk_evaluator:
+  enabled: true
+  model_version: "video-risk-v1.0"
+  intersection_ratio: 0.15
+  near_margin_ratio: 0.025
+  footprint_height_ratio: 0.25
+  notice_distance_m: 30.0
+  warning_distance_m: 15.0
+  danger_distance_m: 6.0
+  notice_ttc_s: 5.0
+  warning_ttc_s: 3.0
+  danger_ttc_s: 1.5
+  track_iou_threshold: 0.30
+  history_size: 5
+  confirm_frames: 3
+  release_frames: 5
+  min_corridor_confidence: 0.45
+  min_closing_speed_mps: 0.5
+  max_track_gap_s: 0.5
 
 unknown_detector:
   backend: "mask2anomaly"

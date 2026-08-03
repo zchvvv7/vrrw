@@ -3,13 +3,52 @@
 用途: 将道路区域、检测框和风险等级画到图像上
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-31
+最后修改日期: 2026-08-03
 """
 
 import cv2
 import numpy as np
 
 from src.interface.schemas import FrameResult
+from src.interface.schemas import ObstacleRisk
+
+
+RISK_COLORS = {
+    "safe": (0, 200, 0),
+    "notice": (0, 255, 255),
+    "warning": (0, 140, 255),
+    "danger": (0, 0, 255),
+}
+
+
+# 查找与当前检测框对应的单目标风险结果
+def _find_obstacle_risk(
+    result: FrameResult,
+    source: str,
+    bbox: tuple,
+) -> ObstacleRisk | None:
+    if result.obstacle_risks is None:
+        return None
+    for obstacle_risk in result.obstacle_risks:
+        if (
+            obstacle_risk.source == source
+            and tuple(obstacle_risk.bbox) == tuple(bbox)
+        ):
+            return obstacle_risk
+    return None
+
+
+# 根据单目标风险等级选择绘制颜色
+def _get_risk_color(
+    obstacle_risk: ObstacleRisk | None,
+    default_color: tuple,
+) -> tuple:
+    if obstacle_risk is None:
+        return default_color
+    return RISK_COLORS.get(
+        obstacle_risk.risk_level,
+        default_color,
+    )
 
 
 # 绘制道路区域
@@ -108,7 +147,16 @@ def _draw_anomaly_mask(
 def _draw_known_objects(output: np.ndarray, result: FrameResult) -> np.ndarray:
     for detected_object in result.known_objects:
         x1, y1, x2, y2 = detected_object.bbox
-        cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 255), 2)
+        obstacle_risk = _find_obstacle_risk(
+            result,
+            "known",
+            detected_object.bbox,
+        )
+        color = _get_risk_color(
+            obstacle_risk,
+            (0, 255, 255),
+        )
+        cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
         label = (
             f"{detected_object.class_name} "
             f"{detected_object.confidence:.2f}"
@@ -118,13 +166,18 @@ def _draw_known_objects(output: np.ndarray, result: FrameResult) -> np.ndarray:
                 f"{label} "
                 f"{detected_object.distance:.2f}m"
             )
+        if obstacle_risk is not None:
+            label = (
+                f"{label} {obstacle_risk.spatial_relation} "
+                f"{obstacle_risk.risk_level}"
+            )
         cv2.putText(
             output,
             label,
             (x1, max(y1 - 8, 20)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
-            (0, 255, 255),
+            color,
             2,
         )
     return output
@@ -137,15 +190,33 @@ def _draw_unknown_regions(
 ) -> np.ndarray:
     for unknown_region in result.unknown_regions:
         x1, y1, x2, y2 = unknown_region.bbox
-        cv2.rectangle(output, (x1, y1), (x2, y2), (255, 0, 255), 2)
+        obstacle_risk = _find_obstacle_risk(
+            result,
+            "unknown",
+            unknown_region.bbox,
+        )
+        color = _get_risk_color(
+            obstacle_risk,
+            (255, 0, 255),
+        )
+        cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
         label = f"unknown {unknown_region.score:.2f}"
+        if unknown_region.distance is not None:
+            label = (
+                f"{label} {unknown_region.distance:.2f}m"
+            )
+        if obstacle_risk is not None:
+            label = (
+                f"{label} {obstacle_risk.spatial_relation} "
+                f"{obstacle_risk.risk_level}"
+            )
         cv2.putText(
             output,
             label,
             (x1, max(y1 - 8, 20)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
-            (255, 0, 255),
+            color,
             2,
         )
     return output
@@ -153,13 +224,17 @@ def _draw_unknown_regions(
 
 # 绘制风险等级
 def _draw_risk_info(output: np.ndarray, result: FrameResult) -> np.ndarray:
+    risk_color = RISK_COLORS.get(
+        result.risk_level,
+        (0, 0, 255),
+    )
     cv2.putText(
         output,
         f"Risk: {result.risk_level}",
         (30, 40),
         cv2.FONT_HERSHEY_SIMPLEX,
         1.0,
-        (0, 0, 255),
+        risk_color,
         2,
     )
     cv2.putText(
@@ -168,9 +243,34 @@ def _draw_risk_info(output: np.ndarray, result: FrameResult) -> np.ndarray:
         (30, 75),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
-        (0, 0, 255),
+        risk_color,
         2,
     )
+    cv2.putText(
+        output,
+        f"System: {result.risk_system_status}",
+        (30, 108),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        risk_color,
+        2,
+    )
+    if result.obstacle_risks is not None:
+        valid_ttc_values = [
+            item.ttc
+            for item in result.obstacle_risks
+            if item.ttc is not None
+        ]
+        if valid_ttc_values:
+            cv2.putText(
+                output,
+                f"TTC: {min(valid_ttc_values):.2f}s",
+                (30, 140),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                risk_color,
+                2,
+            )
     return output
 
 

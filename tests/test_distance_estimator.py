@@ -1,9 +1,9 @@
 """
 文件名: test_distance_estimator.py
-用途: 测试已知障碍物距离估计接口和占位实现
-作者: 张楚涵
+用途: 测试已知障碍物距离估计
+作者: 张楚涵，周子懿
 创建日期: 2026-07-28
-最后修改日期: 2026-07-28
+最后修改日期: 2026-08-01
 """
 
 from dataclasses import replace
@@ -13,7 +13,6 @@ from typing import List
 import numpy as np
 
 from src.interface.schemas import DetectedObject
-from src.modules.distance_estimator import INFERENCE_ERROR
 from src.modules.distance_estimator import SUCCESS
 from src.modules.distance_estimator import DistanceEstimator
 
@@ -103,18 +102,140 @@ def test_implementation_writes_known_object_distance() -> None:
     assert result.method == "fake_metric_depth"
 
 
-# 测试未实现算法在启用后返回明确错误
-def test_unimplemented_estimator_returns_error() -> None:
-    estimator = DistanceEstimator(
-        config={"enabled": True},
+# 构造启用几何投影的估计器
+def build_estimator() -> DistanceEstimator:
+    return DistanceEstimator(
+        config={
+            "enabled": True,
+            "method": "geometric_bbox_height",
+            "model_version": "v1.0",
+            "focal_length_px": 1000.0,
+            "min_bbox_height_px": 8,
+            "min_distance_m": 0.3,
+            "max_distance_m": 80.0,
+            "class_heights_m": {
+                "cone": 0.70,
+                "barrier": 1.00,
+                "vehicle": 1.50,
+            },
+        },
     )
 
-    result = estimator.estimate(
+
+# 测试空目标列表可正常运行
+def test_empty_known_objects() -> None:
+    result = build_estimator().estimate(
         frame=build_frame(),
         frame_id=0,
-        known_objects=build_known_objects(),
+        known_objects=[],
+    )
+    assert result.error_code == SUCCESS
+    assert result.known_objects == []
+
+
+# 测试多目标数量顺序不变且距离可写
+def test_multiple_objects_preserve_order() -> None:
+    objects = [
+        DetectedObject(
+            class_name="cone",
+            bbox=(10, 10, 20, 30),
+            confidence=0.9,
+        ),
+        DetectedObject(
+            class_name="vehicle",
+            bbox=(30, 5, 50, 35),
+            confidence=0.8,
+        ),
+    ]
+    result = build_estimator().estimate(
+        frame=build_frame(),
+        frame_id=1,
+        known_objects=objects,
+    )
+    assert result.error_code == SUCCESS
+    assert len(result.known_objects) == 2
+    assert (
+        result.known_objects[0].class_name == "cone"
+    )
+    assert (
+        result.known_objects[1].class_name
+        == "vehicle"
+    )
+    assert (
+        result.known_objects[0].bbox
+        == objects[0].bbox
+    )
+    assert (
+        result.known_objects[0].distance is not None
+    )
+    assert (
+        result.known_objects[1].distance is not None
     )
 
-    assert result.error_code == INFERENCE_ERROR
-    assert "NotImplementedError" in result.error_message
+
+# 测试边界框过小或越界时不崩溃
+def test_invalid_bbox_returns_none_distance() -> None:
+    objects = [
+        DetectedObject(
+            class_name="cone",
+            bbox=(10, 10, 20, 12),
+            confidence=0.9,
+        ),
+        DetectedObject(
+            class_name="cone",
+            bbox=(-5, -5, 5, 5),
+            confidence=0.8,
+        ),
+    ]
+    result = build_estimator().estimate(
+        frame=build_frame(),
+        frame_id=2,
+        known_objects=objects,
+    )
+    assert result.error_code == SUCCESS
     assert result.known_objects[0].distance is None
+    assert result.known_objects[1].distance is None
+
+
+# 测试近中远距离绝对误差和相对误差
+def test_near_mid_far_distance_errors() -> None:
+    # 选用整数框高，使真值距离恰好为 f*H/h
+    cases = [
+        ("near", 140, 5.0),
+        ("mid", 35, 20.0),
+        ("far", 14, 50.0),
+    ]
+    objects = []
+    for _name, bbox_height, _true_distance in cases:
+        objects.append(
+            DetectedObject(
+                class_name="cone",
+                bbox=(
+                    10,
+                    10,
+                    20,
+                    10 + bbox_height,
+                ),
+                confidence=0.9,
+            )
+        )
+
+    frame = np.zeros(
+        (200, 80, 3),
+        dtype=np.uint8,
+    )
+    result = build_estimator().estimate(
+        frame=frame,
+        frame_id=4,
+        known_objects=objects,
+    )
+    assert result.error_code == SUCCESS
+
+    for index, (_name, _h, true_distance) in enumerate(cases):
+        predicted = result.known_objects[index].distance
+        assert predicted is not None
+        abs_error = abs(predicted - true_distance)
+        rel_error = abs_error / true_distance
+        assert abs_error < 0.5
+        assert rel_error < 0.05
+

@@ -28,9 +28,17 @@ known_detector:
     - vehicle
 
 distance_estimator:
-  enabled: false
-  method: "not_implemented"
-  model_version: "unimplemented"
+  enabled: true
+  method: "geometric_bbox_height"
+  model_version: "v1.0"
+  focal_length_px: 1000.0
+  min_bbox_height_px: 8
+  min_distance_m: 0.3
+  max_distance_m: 80.0
+  class_heights_m:
+    cone: 0.70
+    barrier: 1.00
+    vehicle: 1.50
 
 corridor_predictor:
   enabled: true

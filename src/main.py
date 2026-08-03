@@ -3,7 +3,7 @@
 用途: 项目总流程
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-07-31
+最后修改日期: 2026-08-03
 """
 
 import json
@@ -29,7 +29,7 @@ from src.interface.schemas import KnownDetectionResult
 from src.interface.schemas import RoadSegmentResult
 from src.interface.schemas import UnknownDetectionResult
 from src.modules.corridor_predictor import CorridorPredictor
-# from src.modules.distance_estimator import DistanceEstimator
+from src.modules.distance_estimator import DistanceEstimator
 from src.modules.known_detector import KnownDetector
 from src.modules.road_segmenter import RoadSegmenter
 from src.modules.unknown_detector import UnknownDetector
@@ -378,9 +378,9 @@ def run_pipeline(config_path: str) -> None:
     known_detector = KnownDetector(
         config=config["known_detector"],
     )
-    # distance_estimator = DistanceEstimator(
-    #     config=config.get("distance_estimator", {}),
-    # )
+    distance_estimator = DistanceEstimator(
+        config=config.get("distance_estimator", {}),
+    )
     corridor_predictor = CorridorPredictor(
         config=config.get("corridor_predictor", {}),
     )
@@ -427,19 +427,25 @@ def run_pipeline(config_path: str) -> None:
             known_result = known_detector.predict(
                 frame=frame,
             )
-            # distance_result = distance_estimator.estimate(
-            #     frame=frame,
-            #     frame_id=frame_id,
-            #     known_objects=known_result.objects,
-            # )
-            # known_result.objects = (
-            #     distance_result.known_objects
-            # )
-            distance_result = None
+            distance_result = distance_estimator.estimate(
+                frame=frame,
+                frame_id=frame_id,
+                known_objects=known_result.objects,
+            )
+            known_result.objects = (
+                distance_result.known_objects
+            )
             unknown_result = unknown_detector.predict(
                 frame=frame,
                 road_mask=road_result.mask,
                 known_objects=known_result.objects,
+            )
+            unknown_result.regions = (
+                distance_estimator.estimate_unknown_regions(
+                    frame=frame,
+                    frame_id=frame_id,
+                    unknown_regions=unknown_result.regions,
+                )
             )
             corridor_result = corridor_predictor.predict(
                 frame=frame,
@@ -456,11 +462,11 @@ def run_pipeline(config_path: str) -> None:
                     "Known detection failed: %s",
                     known_result.error_message,
                 )
-            # if not distance_result.is_successful:
-            #     logger.error(
-            #         "Distance estimation failed: %s",
-            #         distance_result.error_message,
-            #     )
+            if not distance_result.is_successful:
+                logger.error(
+                    "Distance estimation failed: %s",
+                    distance_result.error_message,
+                )
             if not unknown_result.is_successful:
                 logger.error(
                     "Unknown detection failed: %s",

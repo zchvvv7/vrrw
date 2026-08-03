@@ -1,9 +1,9 @@
 """
 文件名: distance_estimator.py
-用途: 对已知障碍物做几何投影距离估计
+用途: 对已知与未知障碍物做几何投影距离估计
 作者: 周子懿
 创建日期: 2026-07-28
-最后修改日期: 2026-08-01
+最后修改日期: 2026-08-03
 """
 
 from dataclasses import replace
@@ -20,6 +20,7 @@ from src.interface.module_interfaces import (
 )
 from src.interface.schemas import DetectedObject
 from src.interface.schemas import DistanceEstimationResult
+from src.interface.schemas import UnknownRegion
 
 
 INVALID_INPUT_ERROR = -1
@@ -29,7 +30,7 @@ SUCCESS = 0
 
 
 class DistanceEstimator(DistanceEstimatorInterface):
-    """管理已知障碍物距离估计的配置、校验和统一返回值"""
+    """管理已知与未知障碍物的几何距离估计"""
 
     # 初始化距离估计器并解析配置参数
     def __init__(
@@ -61,6 +62,12 @@ class DistanceEstimator(DistanceEstimatorInterface):
         )
         self._max_distance_m = float(
             config.get("max_distance_m", 80.0)
+        )
+        self._camera_height_m = float(
+            config.get("camera_height_m", 1.50)
+        )
+        self._horizon_ratio = float(
+            config.get("horizon_ratio", 0.50)
         )
         default_heights = {
             "cone": 0.70,
@@ -217,6 +224,78 @@ class DistanceEstimator(DistanceEstimatorInterface):
                 )
             )
         return results
+
+    # 使用区域底部接地点估计未知障碍物距离
+    def estimate_unknown_regions(
+        self,
+        frame: np.ndarray,
+        frame_id: int,
+        unknown_regions: List[UnknownRegion],
+    ) -> List[UnknownRegion]:
+        del frame_id
+        if not self._enabled:
+            return unknown_regions
+        if not isinstance(frame, np.ndarray):
+            return unknown_regions
+        if frame.size == 0 or frame.ndim != 3:
+            return unknown_regions
+        if not isinstance(unknown_regions, list):
+            return []
+
+        frame_height, frame_width = frame.shape[:2]
+        estimated_regions: List[UnknownRegion] = []
+        for region in unknown_regions:
+            if not isinstance(region, UnknownRegion):
+                continue
+            distance = self._estimate_ground_distance(
+                bbox=region.bbox,
+                frame_width=frame_width,
+                frame_height=frame_height,
+            )
+            estimated_regions.append(
+                replace(region, distance=distance)
+            )
+        return estimated_regions
+
+    # 根据平坦路面投影计算边界框底部接地点距离
+    def _estimate_ground_distance(
+        self,
+        bbox: Tuple[int, int, int, int],
+        frame_width: int,
+        frame_height: int,
+    ) -> Optional[float]:
+        clipped_bbox = self._clip_bbox(
+            bbox=bbox,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+        if clipped_bbox is None:
+            return None
+        if self._focal_length_px <= 0.0:
+            return None
+        if self._camera_height_m <= 0.0:
+            return None
+        if not 0.0 < self._horizon_ratio < 1.0:
+            return None
+
+        _x1, _y1, _x2, bottom_y = clipped_bbox
+        horizon_y = frame_height * self._horizon_ratio
+        vertical_offset = float(bottom_y) - horizon_y
+        if vertical_offset <= 0.0:
+            return None
+
+        distance = (
+            self._focal_length_px
+            * self._camera_height_m
+            / vertical_offset
+        )
+        if not (
+            self._min_distance_m
+            <= distance
+            <= self._max_distance_m
+        ):
+            return None
+        return float(distance)
 
     # 对单个已知障碍物做几何距离估计
     def _estimate_one_object(

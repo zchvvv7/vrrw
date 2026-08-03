@@ -64,6 +64,9 @@ class CorridorPredictor(CorridorPredictorInterface):
         self._corridor_width_ratio = float(
             config.get("corridor_width_ratio", 0.5)
         )
+        self._corridor_top_ratio = float(
+            config.get("corridor_top_ratio", 0.8)
+        )
         self._geometry_risk_weight = float(
             config.get("geometry_risk_weight", 0.4)
         )
@@ -204,7 +207,7 @@ class CorridorPredictor(CorridorPredictorInterface):
             is_enabled=True,
         )
 
-    # 核心算法：从道路掩码中提取走廊、估算几何风险、计算置信度
+    # 核心算法：从道路掩码拟合直线边缘，构建梯形走廊并估算风险
     def _predict_corridor(
         self,
         frame: np.ndarray,
@@ -225,28 +228,32 @@ class CorridorPredictor(CorridorPredictorInterface):
             )
             return empty_mask, [], [], 0.0
 
-        centerline = self._fit_centerline(
-            left_boundary, right_boundary, valid_rows
+        trapezoid_result = self._build_trapezoid_corridor(
+            left_boundary,
+            right_boundary,
+            valid_rows,
+            height,
+            width,
         )
 
-        centerline = self._smooth_centerline(centerline)
-
-        corridor_boundaries = (
-            self._narrow_corridor_boundaries(
-                left_boundary, right_boundary, valid_rows
+        if trapezoid_result is None:
+            empty_mask = np.zeros((height, width), dtype=np.uint8)
+            self._update_history(
+                empty_mask, [], [], 0.0
             )
-        )
+            return empty_mask, [], [], 0.0
 
-        corridor_polygon = self._build_corridor_polygon(
-            corridor_boundaries, valid_rows
-        )
+        _, _, polygon, centerline = trapezoid_result
+
+        if len(polygon) < 3 or len(centerline) < 2:
+            empty_mask = np.zeros((height, width), dtype=np.uint8)
+            self._update_history(
+                empty_mask, [], [], 0.0
+            )
+            return empty_mask, [], [], 0.0
 
         corridor_mask = self._build_corridor_mask(
-            corridor_polygon, height, width
-        )
-
-        corridor_mask = self._smooth_corridor_edges(
-            corridor_mask
+            polygon, height, width
         )
 
         direction, direction_risk = self._analyze_direction(
@@ -269,18 +276,16 @@ class CorridorPredictor(CorridorPredictorInterface):
             raw_confidence
         )
 
-        centerline = self._densify_centerline(centerline)
-
         self._update_history(
             corridor_mask,
-            corridor_polygon,
+            polygon,
             centerline,
             smoothed_confidence,
         )
 
         return (
             corridor_mask,
-            corridor_polygon,
+            polygon,
             centerline,
             smoothed_confidence,
         )
@@ -400,32 +405,182 @@ class CorridorPredictor(CorridorPredictorInterface):
 
         return smoothed
 
-    # 将道路边界按比例收窄为走廊边界（以道路中心为基准）
-    def _narrow_corridor_boundaries(
+    # 对道路边界进行直线拟合，构建边缘平行于道路的等比例缩小梯形
+    def _build_trapezoid_corridor(
         self,
         left_boundary: dict,
         right_boundary: dict,
         valid_rows: List[int],
-    ) -> Tuple[dict, dict]:
-        corridor_left: dict = {}
-        corridor_right: dict = {}
+        height: int,
+        width: int,
+    ) -> Optional[Tuple[dict, dict, List[Tuple[int, int]],
+                        List[Tuple[int, int]]]]:
+        sorted_rows = sorted(valid_rows)
 
-        for y in sorted(valid_rows):
+        # 收集边界点用于直线拟合
+        left_ys: List[float] = []
+        left_xs: List[float] = []
+        right_ys: List[float] = []
+        right_xs: List[float] = []
+        for y in sorted_rows:
             lx = left_boundary.get(y)
             rx = right_boundary.get(y)
-            if lx is None or rx is None:
-                continue
-            road_center = (lx + rx) / 2.0
-            half_width = (
-                (rx - lx) / 2.0
-                * self._corridor_width_ratio
-            )
-            cx = int(road_center - half_width)
-            dx = int(road_center + half_width)
-            corridor_left[y] = cx
-            corridor_right[y] = dx
+            if lx is not None and rx is not None:
+                left_ys.append(float(y))
+                left_xs.append(float(lx))
+                right_ys.append(float(y))
+                right_xs.append(float(rx))
 
-        return corridor_left, corridor_right
+        if len(left_ys) < 2 or len(right_ys) < 2:
+            return None
+
+        # 线性拟合道路边缘：x = a * y + b
+        left_coeffs = np.polyfit(left_ys, left_xs, 1)
+        right_coeffs = np.polyfit(right_ys, right_xs, 1)
+        left_a = float(left_coeffs[0])
+        left_b = float(left_coeffs[1])
+        right_a = float(right_coeffs[0])
+        right_b = float(right_coeffs[1])
+
+        # 计算消失点 y（左右边缘直线的交点）
+        if abs(left_a - right_a) > 1e-6:
+            vp_y = (right_b - left_b) / (left_a - right_a)
+        else:
+            vp_y = float(sorted_rows[0])
+
+        road_bottom_y = float(sorted_rows[-1])
+        road_top_y = float(sorted_rows[0])
+
+        # 车头正中间的横向位置（图像中心 x）
+        ego_center_x = width / 2.0
+
+        # 检查拟合是否合理：消失点应在道路上方
+        # 若拟合结果不合理（模型输出噪声大），使用对称梯形回退
+        if vp_y >= road_bottom_y:
+            # 回退：假设消失点在画面上方 1/3 处，横向对齐车头中心
+            vp_y = height * (1.0 / 3.0)
+            vp_x = ego_center_x
+            actual_bottom_y = int(road_bottom_y)
+            actual_bl = float(
+                left_boundary.get(actual_bottom_y, 0)
+            )
+            actual_br = float(
+                right_boundary.get(
+                    actual_bottom_y, width - 1
+                )
+            )
+            actual_width = actual_br - actual_bl
+            if actual_width < self._min_road_width:
+                return None
+            # 对称边缘：从车头正中间向两侧等距扩展，斜边收敛到消失点
+            half_w_raw = actual_width / 2.0
+            dy = vp_y - road_bottom_y
+            if abs(dy) < 1.0:
+                dy = -1.0
+            left_a = (vp_x - (ego_center_x - half_w_raw)) / dy
+            right_a = (vp_x - (ego_center_x + half_w_raw)) / dy
+            left_b = (
+                ego_center_x - half_w_raw
+            ) - left_a * road_bottom_y
+            right_b = (
+                ego_center_x + half_w_raw
+            ) - right_a * road_bottom_y
+        else:
+            # 正常拟合：把道路中心平移到车头正中间，保持左右斜边斜率
+            fit_center_at_bottom = (
+                (left_a * road_bottom_y + left_b)
+                + (right_a * road_bottom_y + right_b)
+            ) / 2.0
+            offset_x = ego_center_x - fit_center_at_bottom
+            left_b += offset_x
+            right_b += offset_x
+            # 重新计算消失点 x 位置（对齐到车头正中间）
+            vp_x = left_a * vp_y + left_b
+
+        # 梯形底边在道路 mask 实际检测到的最底部（车头前的道路边缘）
+        trap_bottom_y = int(road_bottom_y)
+        # 梯形顶边：从底边向消失点方向延伸 corridor_top_ratio
+        trap_top_y = int(
+            trap_bottom_y
+            + (vp_y - trap_bottom_y) * self._corridor_top_ratio
+        )
+        # 不超过道路实际可见范围
+        trap_top_y = max(trap_top_y, int(road_top_y))
+        # 保证梯形有足够高度
+        trap_top_y = min(trap_top_y, trap_bottom_y - 10)
+
+        # 底边处道路宽度（按平移后的道路边缘计算）
+        road_bottom_left = left_a * trap_bottom_y + left_b
+        road_bottom_right = right_a * trap_bottom_y + right_b
+        road_bottom_width = (
+            road_bottom_right - road_bottom_left
+        )
+
+        if road_bottom_width < self._min_road_width:
+            return None
+
+        # 梯形宽度为道路宽度的 corridor_width_ratio，以车头正中间为基准
+        scale = self._corridor_width_ratio
+        trap_bottom_left = (
+            ego_center_x - (road_bottom_width * scale) / 2.0
+        )
+        trap_bottom_right = (
+            ego_center_x + (road_bottom_width * scale) / 2.0
+        )
+
+        # 梯形左边缘平行于道路左边缘（斜率 left_a），起点在底边左下角
+        trap_left_b = trap_bottom_left - left_a * trap_bottom_y
+        # 梯形右边缘平行于道路右边缘（斜率 right_a），起点在底边右下角
+        trap_right_b = (
+            trap_bottom_right - right_a * trap_bottom_y
+        )
+
+        # 顶边处梯形角点
+        trap_top_left = left_a * trap_top_y + trap_left_b
+        trap_top_right = right_a * trap_top_y + trap_right_b
+
+        # 限制到图像范围内
+        def _clamp_x(x: float) -> int:
+            return int(max(0, min(width - 1, x)))
+
+        polygon = [
+            (_clamp_x(trap_bottom_left), trap_bottom_y),
+            (_clamp_x(trap_bottom_right), trap_bottom_y),
+            (_clamp_x(trap_top_right), trap_top_y),
+            (_clamp_x(trap_top_left), trap_top_y),
+        ]
+
+        # 逐行构建走廊边界
+        corridor_left: dict = {}
+        corridor_right: dict = {}
+        for y in range(trap_top_y, trap_bottom_y + 1):
+            cl = left_a * y + trap_left_b
+            cr = right_a * y + trap_right_b
+            corridor_left[y] = _clamp_x(cl)
+            corridor_right[y] = _clamp_x(cr)
+
+        # 从底到顶构建中心线
+        centerline: List[Tuple[int, int]] = []
+        num_points = min(50, trap_bottom_y - trap_top_y + 1)
+        if num_points >= 2:
+            for i in range(num_points):
+                t = i / (num_points - 1)
+                y = int(
+                    trap_bottom_y
+                    + (trap_top_y - trap_bottom_y) * t
+                )
+                cx = (
+                    left_a * y + trap_left_b
+                    + right_a * y + trap_right_b
+                ) / 2.0
+                centerline.append((_clamp_x(cx), y))
+
+        return (
+            corridor_left,
+            corridor_right,
+            polygon,
+            centerline,
+        )
 
     # 构建走廊多边形（底部→顶部→返回底部）
     def _build_corridor_polygon(

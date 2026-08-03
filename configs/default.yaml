@@ -51,6 +51,7 @@ corridor_predictor:
   boundary_sample_step: 2
   min_valid_rows: 10
   corridor_width_ratio: 0.8
+  corridor_top_ratio: 0.8
   geometry_risk_weight: 0.4
   direction_risk_weight: 0.3
   width_risk_weight: 0.3

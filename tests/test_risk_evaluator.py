@@ -3,7 +3,7 @@
 用途: 测试仅基于视频的空间冲突、TTC和风险防抖
 作者: 张楚涵
 创建日期: 2026-08-03
-最后修改日期: 2026-08-03
+最后修改日期: 2026-08-04
 """
 
 from typing import List
@@ -26,6 +26,10 @@ def build_evaluator(**overrides: object) -> RiskEvaluator:
         "intersection_ratio": 0.15,
         "near_margin_ratio": 0.03,
         "footprint_height_ratio": 0.25,
+        "max_corridor_lateral_ratio": 0.65,
+        "min_known_confidence": 0.45,
+        "max_known_bbox_area_ratio": 0.40,
+        "max_known_bbox_border_count": 2,
         "notice_distance_m": 30.0,
         "warning_distance_m": 15.0,
         "danger_distance_m": 6.0,
@@ -33,11 +37,15 @@ def build_evaluator(**overrides: object) -> RiskEvaluator:
         "warning_ttc_s": 3.0,
         "danger_ttc_s": 1.5,
         "track_iou_threshold": 0.30,
-        "history_size": 5,
+        "history_size": 15,
         "confirm_frames": 3,
-        "release_frames": 3,
+        "min_ttc_samples": 5,
+        "min_ttc_observation_s": 0.25,
+        "min_ttc_r_squared": 0.80,
+        "min_closing_observations_ratio": 0.75,
         "min_corridor_confidence": 0.45,
         "min_closing_speed_mps": 0.5,
+        "max_closing_speed_mps": 25.0,
         "max_track_gap_s": 1.5,
     }
     config.update(overrides)
@@ -74,11 +82,12 @@ def build_corridor(
 def build_known_object(
     bbox: tuple = (40, 40, 60, 90),
     distance: float | None = 20.0,
+    confidence: float = 0.9,
 ) -> DetectedObject:
     return DetectedObject(
         class_name="vehicle",
         bbox=bbox,
-        confidence=0.9,
+        confidence=confidence,
         distance=distance,
     )
 
@@ -214,7 +223,12 @@ def test_missing_distance_conflict_is_warning() -> None:
 
 # 测试视频距离变化可以生成相对TTC
 def test_video_distance_history_generates_ttc() -> None:
-    evaluator = build_evaluator(confirm_frames=1)
+    evaluator = build_evaluator(
+        confirm_frames=1,
+        history_size=5,
+        min_ttc_samples=3,
+        min_ttc_observation_s=1.0,
+    )
     distances = [20.0, 18.0, 16.0]
     result = None
     for frame_id, distance in zip(
@@ -237,9 +251,9 @@ def test_video_distance_history_generates_ttc() -> None:
     assert ttc == pytest.approx(8.0)
 
 
-# 测试风险降低需要连续安全帧释放
-def test_risk_downgrade_uses_release_hysteresis() -> None:
-    evaluator = build_evaluator(release_frames=3)
+# 测试当前帧无障碍物时立即清除历史危险
+def test_no_obstacle_clears_previous_danger() -> None:
+    evaluator = build_evaluator()
     for frame_id in range(3):
         danger_result = evaluator.evaluate(
             frame_id=frame_id,
@@ -250,31 +264,134 @@ def test_risk_downgrade_uses_release_hysteresis() -> None:
         )
     assert danger_result.risk_level == "danger"
 
-    first_safe = evaluator.evaluate(
+    safe_result = evaluator.evaluate(
         frame_id=3,
         fps=10.0,
         corridor_result=build_corridor(),
         known_objects=[],
         unknown_regions=[],
     )
-    second_safe = evaluator.evaluate(
-        frame_id=4,
+    assert safe_result.risk_level == "safe"
+    assert safe_result.major_reason == "no_obstacle"
+    assert safe_result.obstacle_risks == []
+
+
+# 测试整图异常框不会进入风险计算
+def test_full_frame_detection_is_ignored() -> None:
+    result = build_evaluator(confirm_frames=1).evaluate(
+        frame_id=0,
         fps=10.0,
         corridor_result=build_corridor(),
-        known_objects=[],
-        unknown_regions=[],
-    )
-    third_safe = evaluator.evaluate(
-        frame_id=5,
-        fps=10.0,
-        corridor_result=build_corridor(),
-        known_objects=[],
+        known_objects=[
+            build_known_object(
+                bbox=(0, 0, 100, 100),
+                distance=1.5,
+            )
+        ],
         unknown_regions=[],
     )
 
-    assert first_safe.risk_level == "danger"
-    assert second_safe.risk_level == "danger"
-    assert third_safe.risk_level == "safe"
+    assert result.risk_level == "safe"
+    assert result.obstacle_risks == []
+
+
+# 测试低置信度检测不会进入风险计算
+def test_low_confidence_detection_is_ignored() -> None:
+    result = build_evaluator(confirm_frames=1).evaluate(
+        frame_id=0,
+        fps=10.0,
+        corridor_result=build_corridor(),
+        known_objects=[
+            build_known_object(
+                distance=2.0,
+                confidence=0.3,
+            )
+        ],
+        unknown_regions=[],
+    )
+
+    assert result.risk_level == "safe"
+    assert result.obstacle_risks == []
+
+
+# 测试仅边缘交叠但接地点在走廊外的目标不会判定危险
+def test_side_obstacle_contact_outside_corridor_is_not_danger() -> None:
+    result = build_evaluator(confirm_frames=1).evaluate(
+        frame_id=0,
+        fps=10.0,
+        corridor_result=build_corridor(),
+        known_objects=[
+            build_known_object(
+                bbox=(60, 40, 90, 90),
+                distance=4.0,
+            )
+        ],
+        unknown_regions=[],
+    )
+
+    obstacle_risk = result.obstacle_risks[0]
+    assert obstacle_risk.corridor_overlap > 0.15
+    assert obstacle_risk.spatial_relation == "near"
+    assert obstacle_risk.risk_level != "danger"
+
+
+# 测试走廊边缘目标不会当作自车正前方冲突
+def test_corridor_edge_obstacle_is_not_danger() -> None:
+    result = build_evaluator(confirm_frames=1).evaluate(
+        frame_id=0,
+        fps=10.0,
+        corridor_result=build_corridor(),
+        known_objects=[
+            build_known_object(
+                bbox=(55, 40, 71, 90),
+                distance=4.0,
+            )
+        ],
+        unknown_regions=[],
+    )
+
+    obstacle_risk = result.obstacle_risks[0]
+    assert obstacle_risk.corridor_overlap > 0.5
+    assert obstacle_risk.spatial_relation == "near"
+    assert obstacle_risk.risk_level != "danger"
+
+
+# 测试远距离目标不能只凭较小TTC升级为危险
+def test_far_obstacle_ttc_does_not_trigger_danger() -> None:
+    evaluator = build_evaluator(confirm_frames=1)
+    result = None
+    frame_ids = [0, 10, 20, 30, 40]
+    distances = [104.0, 84.0, 64.0, 44.0, 24.0]
+    for frame_id, distance in zip(frame_ids, distances):
+        result = evaluator.evaluate(
+            frame_id=frame_id,
+            fps=10.0,
+            corridor_result=build_corridor(),
+            known_objects=[
+                build_known_object(distance=distance)
+            ],
+            unknown_regions=[],
+        )
+
+    assert result is not None
+    assert result.obstacle_risks[0].ttc == pytest.approx(1.2)
+    assert result.risk_level == "warning"
+
+
+# 测试系统降级状态不再伪装成道路风险
+def test_degraded_system_with_no_obstacle_is_safe() -> None:
+    result = build_evaluator().evaluate(
+        frame_id=0,
+        fps=10.0,
+        corridor_result=build_corridor(),
+        known_objects=[],
+        unknown_regions=[],
+        system_status=SystemStatus.DEGRADED,
+    )
+
+    assert result.risk_level == "safe"
+    assert result.major_reason == "no_obstacle"
+    assert result.system_status == SystemStatus.DEGRADED
 
 
 # 测试走廊不可用时禁止输出虚假安全

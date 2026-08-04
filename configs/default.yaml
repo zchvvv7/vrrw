@@ -64,6 +64,10 @@ risk_evaluator:
   intersection_ratio: 0.15
   near_margin_ratio: 0.025
   footprint_height_ratio: 0.25
+  max_corridor_lateral_ratio: 0.65
+  min_known_confidence: 0.45
+  max_known_bbox_area_ratio: 0.40
+  max_known_bbox_border_count: 2
   notice_distance_m: 30.0
   warning_distance_m: 15.0
   danger_distance_m: 6.0
@@ -71,11 +75,15 @@ risk_evaluator:
   warning_ttc_s: 3.0
   danger_ttc_s: 1.5
   track_iou_threshold: 0.30
-  history_size: 5
+  history_size: 15
   confirm_frames: 3
-  release_frames: 5
+  min_ttc_samples: 8
+  min_ttc_observation_s: 0.25
+  min_ttc_r_squared: 0.80
+  min_closing_observations_ratio: 0.75
   min_corridor_confidence: 0.45
   min_closing_speed_mps: 0.5
+  max_closing_speed_mps: 25.0
   max_track_gap_s: 0.5
 
 unknown_detector:

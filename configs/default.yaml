@@ -91,8 +91,8 @@ unknown_detector:
 
   model:
     config_path: "configs/mask2anomaly/anomaly_inference.yaml"
-    weights_path: "checkpoints/mask2anomaly/best_contrastive.pth"
-    weights_sha256: "4fc7ef19a58e7fd5b41863467d3eee3d36cee3e9a8e839a1cad93cdc0c1e3695"
+    weights_path: "checkpoints/mask2anomaly/best_contrastive_fp16.pth"
+    weights_sha256: "3f44ef4018beee5b4afbddc023a4eab8ce515c1a107f4b4ed4e78debccbeedfe"
     device: "cuda:0"
     num_inlier_classes: 19
 

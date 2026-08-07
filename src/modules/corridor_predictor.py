@@ -3,7 +3,7 @@
 用途: 预测视频图像空间中的自车行驶走廊，检测碰撞风险，给出方向建议
 作者: 温涵清
 创建日期: 2026-07-28
-最后修改日期: 2026-07-31
+最后修改日期: 2026-08-07
 """
 
 from collections import deque
@@ -18,6 +18,8 @@ import numpy as np
 
 from src.interface.module_interfaces import CorridorPredictorInterface
 from src.interface.schemas import CorridorPredictionResult
+from src.interface.schemas import DetectedObject
+from src.interface.schemas import UnknownRegion
 
 
 INVALID_INPUT_ERROR = -1
@@ -79,10 +81,50 @@ class CorridorPredictor(CorridorPredictorInterface):
         self._history_buffer: Deque[dict] = deque(
             maxlen=MAX_HISTORY_SIZE
         )
+        
+        # 新增：预测时间窗口（秒）
+        self._prediction_horizon_seconds = float(
+            config.get("prediction_horizon_seconds", 3.0)
+        )
+        # 新增：自车速度（米/秒），用于计算时间
+        self._ego_speed_mps = float(
+            config.get("ego_speed_mps", 13.9)
+        )
+        
+        # 新增：几何投影参数（与 distance_estimator 保持一致）
+        self._focal_length_px = float(
+            config.get("focal_length_px", 1000.0)
+        )
+        self._camera_height_m = float(
+            config.get("camera_height_m", 1.50)
+        )
+        self._horizon_ratio = float(
+            config.get("horizon_ratio", 0.50)
+        )
+        self._min_distance_m = float(
+            config.get("min_distance_m", 0.3)
+        )
+        self._max_distance_m = float(
+            config.get("max_distance_m", 80.0)
+        )
+        
+        # 新增：缓存最近一帧的障碍物避让结果和预测信息
+        self._last_obstacle_cutout_mask: Optional[np.ndarray] = None
+        self._last_prediction_markers: List[dict] = []
 
     # 清空所有跨帧历史状态
     def reset(self) -> None:
         self._history_buffer.clear()
+        self._last_obstacle_cutout_mask = None
+        self._last_prediction_markers = []
+        
+    # 获取最近一帧的障碍物避让结果
+    def get_obstacle_avoidance_result(self) -> Optional[np.ndarray]:
+        return self._last_obstacle_cutout_mask
+        
+    # 获取最近一帧的预测信息（时间和距离标记）
+    def get_prediction_info(self) -> List[dict]:
+        return self._last_prediction_markers
 
     # 预测当前帧的自车行驶走廊
     def predict(
@@ -90,6 +132,8 @@ class CorridorPredictor(CorridorPredictorInterface):
         frame: np.ndarray,
         frame_id: int,
         road_mask: np.ndarray,
+        known_objects: Optional[List[DetectedObject]] = None,
+        unknown_regions: Optional[List[UnknownRegion]] = None,
     ) -> CorridorPredictionResult:
         start_time = perf_counter()
 
@@ -114,6 +158,21 @@ class CorridorPredictor(CorridorPredictorInterface):
                 frame=frame,
                 frame_id=frame_id,
                 road_mask=road_mask,
+            )
+            
+            # 新增：应用障碍物避让逻辑，缓存结果
+            self._last_obstacle_cutout_mask = (
+                self._apply_obstacle_avoidance(
+                    corridor_mask, known_objects, unknown_regions
+                )
+            )
+            
+            # 新增：计算预测信息，缓存结果
+            frame_height = frame.shape[0]
+            self._last_prediction_markers = (
+                self._compute_prediction_markers(
+                    centerline, frame_height
+                )
             )
 
             inference_time_ms = (
@@ -847,6 +906,108 @@ class CorridorPredictor(CorridorPredictorInterface):
                 dense_line.append((nx, ny))
 
         return dense_line[: self._max_centerline_points]
+
+    # 应用障碍物避让逻辑，从走廊中扣除障碍物区域
+    def _apply_obstacle_avoidance(
+        self,
+        corridor_mask: np.ndarray,
+        known_objects: Optional[List[DetectedObject]],
+        unknown_regions: Optional[List[UnknownRegion]],
+    ) -> np.ndarray:
+        if corridor_mask is None or corridor_mask.size == 0:
+            return corridor_mask
+            
+        height, width = corridor_mask.shape[:2]
+        cutout_mask = corridor_mask.copy()
+        
+        obstacles_to_cut = []
+        
+        if known_objects:
+            for obj in known_objects:
+                if obj.bbox:
+                    obstacles_to_cut.append(obj.bbox)
+                    
+        if unknown_regions:
+            for region in unknown_regions:
+                if region.bbox:
+                    obstacles_to_cut.append(region.bbox)
+                    
+        for bbox in obstacles_to_cut:
+            x1, y1, x2, y2 = bbox
+            # 确保坐标在图像范围内
+            x1 = max(0, min(width - 1, x1))
+            y1 = max(0, min(height - 1, y1))
+            x2 = max(0, min(width, x2))
+            y2 = max(0, min(height, y2))
+            
+            if x2 > x1 and y2 > y1:
+                cutout_mask[y1:y2, x1:x2] = 0
+                
+        return cutout_mask
+
+    # 计算预测信息（基于几何投影的真实距离和时间）
+    def _compute_prediction_markers(
+        self,
+        centerline: List[Tuple[int, int]],
+        frame_height: int,
+    ) -> List[dict]:
+        if not centerline or len(centerline) < 2:
+            return []
+        
+        markers = []
+        total_points = len(centerline)
+        
+        # 计算地平线位置
+        horizon_y = frame_height * self._horizon_ratio
+        
+        # 使用几何投影公式计算每个点的真实距离
+        # 与 distance_estimator._estimate_ground_distance 保持一致
+        # distance = focal_length * camera_height / vertical_offset
+        def estimate_distance_at_y(y: int) -> Optional[float]:
+            vertical_offset = float(y) - horizon_y
+            if vertical_offset <= 0.0:
+                return None
+            if self._focal_length_px <= 0.0:
+                return None
+            if self._camera_height_m <= 0.0:
+                return None
+            distance = (
+                self._focal_length_px
+                * self._camera_height_m
+                / vertical_offset
+            )
+            if not (self._min_distance_m <= distance <= self._max_distance_m):
+                return None
+            return float(distance)
+        
+        # 沿路径均匀采样几个标记点（例如 5 个点）
+        num_markers = min(5, total_points)
+        for i in range(num_markers):
+            t = i / (num_markers - 1) if num_markers > 1 else 0
+            point_idx = int(t * (total_points - 1))
+            point = centerline[point_idx]
+            
+            # 使用几何投影计算真实距离
+            real_distance = estimate_distance_at_y(point[1])
+            
+            if real_distance is None:
+                # 距离无效时，跳过此点
+                continue
+            
+            # 估算时间（秒）= 距离 / 自车速度
+            if self._ego_speed_mps > 0:
+                time_seconds = real_distance / self._ego_speed_mps
+            else:
+                time_seconds = 0.0
+            
+            markers.append({
+                "x": point[0],
+                "y": point[1],
+                "time_s": round(time_seconds, 2),
+                "distance_m": round(real_distance, 2),
+            })
+            
+        return markers
 
     # 将当前帧结果存入历史缓冲区
     def _update_history(

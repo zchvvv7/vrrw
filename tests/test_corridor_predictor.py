@@ -67,7 +67,7 @@ def build_inputs(
         dtype=np.uint8,
     )
     frame[:, :] = [128, 128, 128]
-    frame[height // 2:, :] = [100, 100, 100]
+    frame[height // 2 :, :] = [100, 100, 100]
     road_mask = np.zeros(
         (height, width),
         dtype=np.uint8,
@@ -152,9 +152,7 @@ class TestCorridorPredictor:
     # 创建模拟道路图像
     @pytest.fixture
     def road_scene(self) -> Tuple[np.ndarray, np.ndarray]:
-        return build_inputs(
-            height=60, width=100, road_width=60
-        )
+        return build_inputs(height=60, width=100, road_width=60)
 
     # 测试输出结构是否完整
     def test_predict_output_structure(
@@ -247,8 +245,7 @@ class TestCorridorPredictor:
 
         if result.corridor_mask is not None:
             outside_road = np.any(
-                (result.corridor_mask > 0)
-                & (road_mask == 0)
+                (result.corridor_mask > 0) & (road_mask == 0)
             )
             assert not outside_road
 
@@ -257,14 +254,10 @@ class TestCorridorPredictor:
         self,
         predictor: CorridorPredictor,
     ) -> None:
-        frame = np.zeros(
-            (40, 80, 3), dtype=np.uint8
-        )
+        frame = np.zeros((40, 80, 3), dtype=np.uint8)
         frame[:] = [128, 128, 128]
 
-        empty_road = np.zeros(
-            (40, 80), dtype=np.uint8
-        )
+        empty_road = np.zeros((40, 80), dtype=np.uint8)
 
         result = predictor.predict(
             frame=frame,
@@ -285,12 +278,11 @@ class TestCorridorPredictor:
     ) -> None:
         frame, road_mask = road_scene
 
-        result1 = predictor.predict(
+        predictor.predict(
             frame=frame,
             frame_id=0,
             road_mask=road_mask,
         )
-        confidence1 = result1.confidence
 
         predictor.reset()
 
@@ -343,9 +335,7 @@ class TestCorridorPredictor:
         self,
         predictor: CorridorPredictor,
     ) -> None:
-        frame = np.zeros(
-            (40, 80, 3), dtype=np.uint8
-        )
+        frame = np.zeros((40, 80, 3), dtype=np.uint8)
         result = predictor.predict(
             frame=frame,
             frame_id=0,
@@ -360,12 +350,8 @@ class TestCorridorPredictor:
         self,
         predictor: CorridorPredictor,
     ) -> None:
-        frame = np.zeros(
-            (40, 80, 3), dtype=np.uint8
-        )
-        road_mask = np.zeros(
-            (60, 100), dtype=np.uint8
-        )
+        frame = np.zeros((40, 80, 3), dtype=np.uint8)
+        road_mask = np.zeros((60, 100), dtype=np.uint8)
         result = predictor.predict(
             frame=frame,
             frame_id=0,
@@ -380,9 +366,7 @@ class TestCorridorPredictor:
         self,
         predictor: CorridorPredictor,
     ) -> None:
-        frame, road_mask = build_obstructed_inputs(
-            height=60, width=100
-        )
+        frame, road_mask = build_obstructed_inputs(height=60, width=100)
         result = predictor.predict(
             frame=frame,
             frame_id=0,
@@ -450,14 +434,10 @@ class TestCorridorPredictor:
     ) -> None:
         height, width = 60, 100
         road_width = 60
-        frame = np.zeros(
-            (height, width, 3), dtype=np.uint8
-        )
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
         frame[:, :] = [128, 128, 128]
 
-        road_mask = np.zeros(
-            (height, width), dtype=np.uint8
-        )
+        road_mask = np.zeros((height, width), dtype=np.uint8)
         left_margin = (width - road_width) // 2
         right_margin = left_margin + road_width
         road_mask[:, left_margin:right_margin] = 255
@@ -472,9 +452,7 @@ class TestCorridorPredictor:
         assert len(result.centerline) >= 2
 
         center_x = width / 2.0
-        centerline_xs = [
-            p[0] for p in result.centerline
-        ]
+        centerline_xs = [p[0] for p in result.centerline]
         mean_centerline_x = np.mean(centerline_xs)
 
         tolerance = road_width * 0.15
@@ -506,7 +484,9 @@ class TestObstacleAvoidance:
 
     # 创建带障碍物的测试场景
     @pytest.fixture
-    def scene_with_obstacles(self):
+    def scene_with_obstacles(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, DetectedObject, UnknownRegion]:
         height, width = 60, 100
         frame = np.zeros((height, width, 3), dtype=np.uint8)
         frame[:, :] = [128, 128, 128]
@@ -561,8 +541,7 @@ class TestObstacleAvoidance:
 
         # 避让后面积应小于或等于原始面积
         assert avoided_area <= original_area, (
-            f"避让后面积 ({avoided_area}) 不应大于 "
-            f"原始面积 ({original_area})"
+            f"避让后面积 ({avoided_area}) 不应大于 原始面积 ({original_area})"
         )
 
     # 测试避让后的掩码与原始掩码的差异
@@ -614,8 +593,7 @@ class TestObstacleAvoidance:
             obstacle_region = avoided_mask[y1:y2, x1:x2]
             # 障碍物区域应为 0（已扣除）
             assert np.all(obstacle_region == 0), (
-                f"已知障碍物 bbox 区域 ({x1}:{x2}, {y1}:{y2}) "
-                f"未被完全扣除"
+                f"已知障碍物 bbox 区域 ({x1}:{x2}, {y1}:{y2}) 未被完全扣除"
             )
 
     # 测试未知区域 bbox 被扣除
@@ -639,8 +617,7 @@ class TestObstacleAvoidance:
             obstacle_region = avoided_mask[y1:y2, x1:x2]
             # 未知区域应为 0（已扣除）
             assert np.all(obstacle_region == 0), (
-                f"未知区域 bbox ({x1}:{x2}, {y1}:{y2}) "
-                f"未被完全扣除"
+                f"未知区域 bbox ({x1}:{x2}, {y1}:{y2}) 未被完全扣除"
             )
 
     # 测试空障碍物列表不影响结果
@@ -732,7 +709,7 @@ class TestGeometricProjection:
 
     # 创建测试场景
     @pytest.fixture
-    def road_scene(self):
+    def road_scene(self) -> Tuple[np.ndarray, np.ndarray]:
         height, width = 720, 1280
         frame = np.zeros((height, width, 3), dtype=np.uint8)
         frame[:, :] = [128, 128, 128]
@@ -837,9 +814,7 @@ class TestGeometricProjection:
         for marker in markers:
             if abs(marker["distance_m"] - expected_distance) < 0.01:
                 found = True
-                assert abs(
-                    marker["time_s"] - expected_time
-                ) < 0.01
+                assert abs(marker["time_s"] - expected_time) < 0.01
                 break
         assert found, (
             f"未找到距离为 {expected_distance:.2f}m 的标记点, "
@@ -923,10 +898,7 @@ class TestGeometricProjection:
 
         # 相同距离下，速度越快，时间越短
         if markers_slow and markers_fast:
-            assert (
-                markers_slow[0]["time_s"]
-                > markers_fast[0]["time_s"]
-            )
+            assert markers_slow[0]["time_s"] > markers_fast[0]["time_s"]
 
     # 测试 reset 清空预测信息缓存
     def test_reset_clears_prediction_info(

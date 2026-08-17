@@ -27,10 +27,7 @@ class FakeDistanceEstimator(DistanceEstimator):
         frame_id: int,
         known_objects: List[DetectedObject],
     ) -> List[DetectedObject]:
-        return [
-            replace(item, distance=12.5)
-            for item in known_objects
-        ]
+        return [replace(item, distance=12.5) for item in known_objects]
 
 
 # 创建测试视频帧
@@ -54,9 +51,7 @@ def build_known_objects() -> List[DetectedObject]:
 
 # 测试距离接口没有未知障碍物参数
 def test_interface_only_accepts_known_objects() -> None:
-    parameters = signature(
-        DistanceEstimator.estimate
-    ).parameters
+    parameters = signature(DistanceEstimator.estimate).parameters
 
     assert "known_objects" in parameters
     assert "unknown_regions" not in parameters
@@ -154,23 +149,11 @@ def test_multiple_objects_preserve_order() -> None:
     )
     assert result.error_code == SUCCESS
     assert len(result.known_objects) == 2
-    assert (
-        result.known_objects[0].class_name == "cone"
-    )
-    assert (
-        result.known_objects[1].class_name
-        == "vehicle"
-    )
-    assert (
-        result.known_objects[0].bbox
-        == objects[0].bbox
-    )
-    assert (
-        result.known_objects[0].distance is not None
-    )
-    assert (
-        result.known_objects[1].distance is not None
-    )
+    assert result.known_objects[0].class_name == "cone"
+    assert result.known_objects[1].class_name == "vehicle"
+    assert result.known_objects[0].bbox == objects[0].bbox
+    assert result.known_objects[0].distance is not None
+    assert result.known_objects[1].distance is not None
 
 
 # 测试边界框过小或越界时不崩溃

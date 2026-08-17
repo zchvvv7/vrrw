@@ -6,8 +6,11 @@
 最后修改日期: 2026-07-24
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from dataclasses import field
+from typing import Dict
+from typing import List
+from typing import Optional
 
 import yaml
 
@@ -15,9 +18,8 @@ import yaml
 @dataclass
 class ModelConfig:
     """SegFormer模型配置"""
-    model_name: str = (
-        "nvidia/segformer-b2-finetuned-cityscapes-1024-1024"
-    )
+
+    model_name: str = "nvidia/segformer-b2-finetuned-cityscapes-1024-1024"
     checkpoint_path: Optional[str] = None
     num_classes: int = 19
 
@@ -25,6 +27,7 @@ class ModelConfig:
 @dataclass
 class DataConfig:
     """数据配置类"""
+
     input_size: List[int] = field(default_factory=lambda: [512, 1024])
     divisor: int = 32
     normalize: bool = True
@@ -35,6 +38,7 @@ class DataConfig:
 @dataclass
 class LabelsConfig:
     """标签配置类"""
+
     dataset: str = "cityscapes"
     road_label: int = 0
     road_label_mapping: Dict[str, int] = field(
@@ -49,6 +53,7 @@ class LabelsConfig:
 @dataclass
 class PostProcessingConfig:
     """后处理配置类"""
+
     confidence_threshold: float = 0.5
     boundary_detection: bool = True
     boundary_method: str = "canny"
@@ -65,6 +70,7 @@ class PostProcessingConfig:
 @dataclass
 class PerformanceConfig:
     """性能配置类"""
+
     enable_profiling: bool = True
     device: str = "auto"
 
@@ -72,6 +78,7 @@ class PerformanceConfig:
 @dataclass
 class QualityConfig:
     """图像质量检测配置类（用于降级状态判断）"""
+
     enable_quality_check: bool = True
     brightness_low_threshold: int = 20
     brightness_high_threshold: int = 230
@@ -85,6 +92,7 @@ class QualityConfig:
 @dataclass
 class SystemConfig:
     """系统配置类"""
+
     log_level: str = "INFO"
     error_codes: Dict[str, int] = field(
         default_factory=lambda: {
@@ -100,10 +108,13 @@ class SystemConfig:
 @dataclass
 class RoadSegmenterConfig:
     """RoadSegmenter模块完整配置类"""
+
     model: ModelConfig = field(default_factory=ModelConfig)
     data: DataConfig = field(default_factory=DataConfig)
     labels: LabelsConfig = field(default_factory=LabelsConfig)
-    post_processing: PostProcessingConfig = field(default_factory=PostProcessingConfig)
+    post_processing: PostProcessingConfig = field(
+        default_factory=PostProcessingConfig
+    )
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     quality: QualityConfig = field(default_factory=QualityConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
@@ -125,7 +136,9 @@ class RoadSegmenterConfig:
             post_processing=PostProcessingConfig(
                 **config_dict.get("post_processing", {})
             ),
-            performance=PerformanceConfig(**config_dict.get("performance", {})),
+            performance=PerformanceConfig(
+                **config_dict.get("performance", {})
+            ),
             quality=QualityConfig(**config_dict.get("quality", {})),
             system=SystemConfig(**config_dict.get("system", {})),
         )

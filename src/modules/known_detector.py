@@ -44,20 +44,14 @@ class KnownDetector:
                 "checkpoints/yolo_best.pt",
             )
         )
-        self._conf_threshold = float(
-            config.get("conf_threshold", 0.25)
-        )
-        self._iou_threshold = float(
-            config.get("iou_threshold", 0.45)
-        )
+        self._conf_threshold = float(config.get("conf_threshold", 0.25))
+        self._iou_threshold = float(config.get("iou_threshold", 0.45))
         self._device = config.get("device", "cpu")
         class_list = config.get("classes", [])
         self._target_classes: Set[str] = {
             name.lower().strip() for name in class_list
         }
-        self._weights_sha256 = str(
-            config.get("weights_sha256", "")
-        ).lower()
+        self._weights_sha256 = str(config.get("weights_sha256", "")).lower()
         self._model = model
         self._model_error = ""
         self._model_path: Optional[Path] = None
@@ -74,31 +68,24 @@ class KnownDetector:
     def _initialize_model(self) -> None:
         try:
             self._validate_configuration()
-            self._model_path = self._resolve_model_path(
-                self._model_path_value
-            )
+            self._model_path = self._resolve_model_path(self._model_path_value)
             self._verify_weights()
 
             if self._model is None:
                 from ultralytics import YOLO
 
-                self._model = YOLO(
-                    str(self._model_path)
-                )
+                self._model = YOLO(str(self._model_path))
 
             self._validate_model_classes()
             version_suffix = self._weights_sha256[:12]
             if not version_suffix:
                 version_suffix = "unchecked"
             self._model_version = (
-                f"yolo-{self._model_path.stem}-"
-                f"{version_suffix}"
+                f"yolo-{self._model_path.stem}-{version_suffix}"
             )
         except Exception as error:
             self._model = None
-            self._model_error = (
-                f"{type(error).__name__}: {error}"
-            )
+            self._model_error = f"{type(error).__name__}: {error}"
 
     # 校验检测阈值、设备和类别配置
     def _validate_configuration(self) -> None:
@@ -106,42 +93,22 @@ class KnownDetector:
             raise ValueError("model_name cannot be empty.")
 
         if not 0.0 <= self._conf_threshold <= 1.0:
-            raise ValueError(
-                "conf_threshold must be between 0 and 1."
-            )
+            raise ValueError("conf_threshold must be between 0 and 1.")
 
         if not 0.0 <= self._iou_threshold <= 1.0:
-            raise ValueError(
-                "iou_threshold must be between 0 and 1."
-            )
+            raise ValueError("iou_threshold must be between 0 and 1.")
 
-        if (
-            isinstance(self._device, str)
-            and self._device.lower() == "auto"
-        ):
-            self._device = (
-                0
-                if torch.cuda.is_available()
-                else "cpu"
-            )
+        if isinstance(self._device, str) and self._device.lower() == "auto":
+            self._device = 0 if torch.cuda.is_available() else "cpu"
 
         if not isinstance(self._device, (str, int)):
-            raise TypeError(
-                "device must be a string or integer."
-            )
+            raise TypeError("device must be a string or integer.")
 
         if "" in self._target_classes:
-            raise ValueError(
-                "classes cannot contain an empty name."
-            )
+            raise ValueError("classes cannot contain an empty name.")
 
-        if (
-            self._weights_sha256
-            and len(self._weights_sha256) != 64
-        ):
-            raise ValueError(
-                "weights_sha256 must contain 64 characters."
-            )
+        if self._weights_sha256 and len(self._weights_sha256) != 64:
+            raise ValueError("weights_sha256 must contain 64 characters.")
 
     # 将项目相对模型路径解析为绝对路径
     def _resolve_model_path(
@@ -151,25 +118,20 @@ class KnownDetector:
         model_path = Path(model_path_value)
         if model_path.is_absolute():
             raise ValueError(
-                "Known detector model path must be "
-                "project-relative."
+                "Known detector model path must be project-relative."
             )
 
-        resolved_path = (
-            PROJECT_ROOT / model_path
-        ).resolve()
+        resolved_path = (PROJECT_ROOT / model_path).resolve()
         try:
             resolved_path.relative_to(PROJECT_ROOT)
         except ValueError as error:
             raise ValueError(
-                "Known detector model path is outside "
-                "project root."
+                "Known detector model path is outside project root."
             ) from error
 
         if not resolved_path.is_file():
             raise FileNotFoundError(
-                "Known detector model not found: "
-                f"{resolved_path}"
+                f"Known detector model not found: {resolved_path}"
             )
 
         return resolved_path
@@ -194,13 +156,9 @@ class KnownDetector:
             return
 
         if self._model_path is None:
-            raise RuntimeError(
-                "Known detector model path is unavailable."
-            )
+            raise RuntimeError("Known detector model path is unavailable.")
 
-        actual_sha256 = self._calculate_sha256(
-            self._model_path
-        )
+        actual_sha256 = self._calculate_sha256(self._model_path)
         if actual_sha256 != self._weights_sha256:
             raise RuntimeError(
                 "Known detector weights SHA256 mismatch. "
@@ -211,9 +169,7 @@ class KnownDetector:
     # 校验配置类别是否存在于模型类别中
     def _validate_model_classes(self) -> None:
         if self._model is None:
-            raise RuntimeError(
-                "Known detector model is unavailable."
-            )
+            raise RuntimeError("Known detector model is unavailable.")
 
         model_names = getattr(
             self._model,
@@ -221,31 +177,20 @@ class KnownDetector:
             None,
         )
         if model_names is None:
-            raise RuntimeError(
-                "Known detector model has no class names."
-            )
+            raise RuntimeError("Known detector model has no class names.")
 
         if isinstance(model_names, dict):
             available_classes = {
-                str(name).lower()
-                for name in model_names.values()
+                str(name).lower() for name in model_names.values()
             }
         else:
-            available_classes = {
-                str(name).lower()
-                for name in model_names
-            }
+            available_classes = {str(name).lower() for name in model_names}
 
-        missing_classes = (
-            self._target_classes - available_classes
-        )
+        missing_classes = self._target_classes - available_classes
         if missing_classes:
-            missing_text = ", ".join(
-                sorted(missing_classes)
-            )
+            missing_text = ", ".join(sorted(missing_classes))
             raise ValueError(
-                "Configured classes are absent from model: "
-                f"{missing_text}"
+                f"Configured classes are absent from model: {missing_text}"
             )
 
     # 检查输入图像是否满足检测要求
@@ -299,13 +244,8 @@ class KnownDetector:
 
         for box in boxes:
             class_id = int(box.cls[0].item())
-            class_name = str(
-                names[class_id]
-            ).lower()
-            if (
-                self._target_classes
-                and class_name not in self._target_classes
-            ):
+            class_name = str(names[class_id]).lower()
+            if self._target_classes and class_name not in self._target_classes:
                 continue
 
             xyxy = box.xyxy[0].tolist()
@@ -318,9 +258,7 @@ class KnownDetector:
                         int(xyxy[2]),
                         int(xyxy[3]),
                     ),
-                    confidence=float(
-                        box.conf[0].item()
-                    ),
+                    confidence=float(box.conf[0].item()),
                     distance=None,
                 )
             )
@@ -355,12 +293,8 @@ class KnownDetector:
                 device=self._device,
                 verbose=False,
             )
-            detected_objects = self._convert_detections(
-                results
-            )
-            inference_time_ms = (
-                perf_counter() - start_time
-            ) * 1000.0
+            detected_objects = self._convert_detections(results)
+            inference_time_ms = (perf_counter() - start_time) * 1000.0
             return KnownDetectionResult(
                 objects=detected_objects,
                 inference_time_ms=inference_time_ms,
@@ -369,9 +303,7 @@ class KnownDetector:
                 model_version=self._model_version,
             )
         except Exception as error:
-            inference_time_ms = (
-                perf_counter() - start_time
-            ) * 1000.0
+            inference_time_ms = (perf_counter() - start_time) * 1000.0
             return self._build_error_result(
                 INFERENCE_ERROR,
                 f"{type(error).__name__}: {error}",

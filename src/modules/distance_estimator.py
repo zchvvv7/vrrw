@@ -24,7 +24,6 @@ from src.interface.schemas import UnknownRegion
 
 
 INVALID_INPUT_ERROR = -1
-MODEL_LOAD_ERROR = -2
 INFERENCE_ERROR = -3
 SUCCESS = 0
 
@@ -39,36 +38,20 @@ class DistanceEstimator(DistanceEstimatorInterface):
     ) -> None:
         if config is None:
             config = {}
-        self._enabled = bool(
-            config.get("enabled", False)
-        )
-        self._method = str(
-            config.get("method", "not_implemented")
-        )
+        self._enabled = bool(config.get("enabled", False))
+        self._method = str(config.get("method", "not_implemented"))
         self._model_version = str(
             config.get(
                 "model_version",
                 "unimplemented",
             )
         )
-        self._focal_length_px = float(
-            config.get("focal_length_px", 1000.0)
-        )
-        self._min_bbox_height_px = int(
-            config.get("min_bbox_height_px", 8)
-        )
-        self._min_distance_m = float(
-            config.get("min_distance_m", 0.3)
-        )
-        self._max_distance_m = float(
-            config.get("max_distance_m", 80.0)
-        )
-        self._camera_height_m = float(
-            config.get("camera_height_m", 1.50)
-        )
-        self._horizon_ratio = float(
-            config.get("horizon_ratio", 0.50)
-        )
+        self._focal_length_px = float(config.get("focal_length_px", 1000.0))
+        self._min_bbox_height_px = int(config.get("min_bbox_height_px", 8))
+        self._min_distance_m = float(config.get("min_distance_m", 0.3))
+        self._max_distance_m = float(config.get("max_distance_m", 80.0))
+        self._camera_height_m = float(config.get("camera_height_m", 1.50))
+        self._horizon_ratio = float(config.get("horizon_ratio", 0.50))
         default_heights = {
             "cone": 0.70,
             "barrier": 1.00,
@@ -93,9 +76,7 @@ class DistanceEstimator(DistanceEstimatorInterface):
         start_time = perf_counter()
 
         if not self._enabled:
-            return self._build_disabled_result(
-                known_objects
-            )
+            return self._build_disabled_result(known_objects)
 
         input_error = self._validate_input(
             frame,
@@ -109,16 +90,12 @@ class DistanceEstimator(DistanceEstimatorInterface):
             )
 
         try:
-            estimated_objects = (
-                self._estimate_known_objects(
-                    frame=frame,
-                    frame_id=frame_id,
-                    known_objects=known_objects,
-                )
+            estimated_objects = self._estimate_known_objects(
+                frame=frame,
+                frame_id=frame_id,
+                known_objects=known_objects,
             )
-            inference_time_ms = (
-                perf_counter() - start_time
-            ) * 1000.0
+            inference_time_ms = (perf_counter() - start_time) * 1000.0
             return DistanceEstimationResult(
                 known_objects=estimated_objects,
                 inference_time_ms=inference_time_ms,
@@ -129,9 +106,7 @@ class DistanceEstimator(DistanceEstimatorInterface):
                 is_enabled=True,
             )
         except Exception as error:
-            inference_time_ms = (
-                perf_counter() - start_time
-            ) * 1000.0
+            inference_time_ms = (perf_counter() - start_time) * 1000.0
             return self._build_error_result(
                 known_objects,
                 INFERENCE_ERROR,
@@ -150,19 +125,11 @@ class DistanceEstimator(DistanceEstimatorInterface):
         if frame.size == 0:
             return "Input frame cannot be empty."
         if frame.ndim != 3 or frame.shape[2] != 3:
-            return (
-                "Input frame must have shape "
-                "H x W x 3."
-            )
+            return "Input frame must have shape H x W x 3."
         if frame.dtype != np.uint8:
-            return (
-                "Input frame must use uint8 "
-                "data type."
-            )
+            return "Input frame must use uint8 data type."
         if not isinstance(known_objects, list):
-            return (
-                "known_objects must be a list."
-            )
+            return "known_objects must be a list."
         return None
 
     # 构造模块关闭时的结果
@@ -174,9 +141,7 @@ class DistanceEstimator(DistanceEstimatorInterface):
             known_objects=known_objects,
             inference_time_ms=0.0,
             error_code=SUCCESS,
-            error_message=(
-                "Distance estimation is disabled."
-            ),
+            error_message=("Distance estimation is disabled."),
             method=self._method,
             model_version=self._model_version,
             is_enabled=False,
@@ -252,9 +217,7 @@ class DistanceEstimator(DistanceEstimatorInterface):
                 frame_width=frame_width,
                 frame_height=frame_height,
             )
-            estimated_regions.append(
-                replace(region, distance=distance)
-            )
+            estimated_regions.append(replace(region, distance=distance))
         return estimated_regions
 
     # 根据平坦路面投影计算边界框底部接地点距离
@@ -285,15 +248,9 @@ class DistanceEstimator(DistanceEstimatorInterface):
             return None
 
         distance = (
-            self._focal_length_px
-            * self._camera_height_m
-            / vertical_offset
+            self._focal_length_px * self._camera_height_m / vertical_offset
         )
-        if not (
-            self._min_distance_m
-            <= distance
-            <= self._max_distance_m
-        ):
+        if not (self._min_distance_m <= distance <= self._max_distance_m):
             return None
         return float(distance)
 
@@ -321,12 +278,8 @@ class DistanceEstimator(DistanceEstimatorInterface):
                 frame_height=frame_height,
             )
 
-        class_key = (
-            detected_object.class_name.lower().strip()
-        )
-        real_height = self._class_heights_m.get(
-            class_key
-        )
+        class_key = detected_object.class_name.lower().strip()
+        real_height = self._class_heights_m.get(class_key)
         if real_height is None or real_height <= 0.0:
             return self._estimate_ground_distance(
                 bbox=bbox,
@@ -336,16 +289,8 @@ class DistanceEstimator(DistanceEstimatorInterface):
         if self._focal_length_px <= 0.0:
             return None
 
-        distance = (
-            self._focal_length_px
-            * real_height
-            / float(bbox_height)
-        )
-        if not (
-            self._min_distance_m
-            <= distance
-            <= self._max_distance_m
-        ):
+        distance = self._focal_length_px * real_height / float(bbox_height)
+        if not (self._min_distance_m <= distance <= self._max_distance_m):
             return None
         return float(distance)
 
@@ -358,9 +303,7 @@ class DistanceEstimator(DistanceEstimatorInterface):
     ) -> Optional[Tuple[int, int, int, int]]:
         if len(bbox) != 4:
             return None
-        x1, y1, x2, y2 = [
-            int(value) for value in bbox
-        ]
+        x1, y1, x2, y2 = [int(value) for value in bbox]
         x1 = max(0, min(x1, frame_width - 1))
         x2 = max(0, min(x2, frame_width))
         y1 = max(0, min(y1, frame_height - 1))

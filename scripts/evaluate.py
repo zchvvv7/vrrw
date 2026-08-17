@@ -10,19 +10,22 @@ import argparse
 import json
 import os
 import sys
-from typing import List, Tuple
+from typing import List
+from typing import Optional
+from typing import Tuple
 
 import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.config.config import RoadSegmenterConfig
-from src.modules.road_segmenter import RoadSegmenter
+from src.config.config import RoadSegmenterConfig  # noqa: E402
+from src.modules.road_segmenter import RoadSegmenter  # noqa: E402
 
 
 # Cityscapes数据集中道路类别的标签ID
 CITYSCAPES_ROAD_LABEL = 7
+
 
 # 计算两个二值掩码的IoU（交并比）
 def compute_iou(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
@@ -32,41 +35,55 @@ def compute_iou(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
 
 
 # 计算平均IoU（mIoU）
-def compute_miou(pred_masks: List[np.ndarray], gt_masks: List[np.ndarray],
-                 num_classes: int = 2) -> float:
+def compute_miou(
+    pred_masks: List[np.ndarray],
+    gt_masks: List[np.ndarray],
+    num_classes: int = 2,
+) -> float:
     ious = []
     for pred, gt in zip(pred_masks, gt_masks):
         for cls in range(num_classes):
-            pred_cls = (pred == cls)
-            gt_cls = (gt == cls)
+            pred_cls = pred == cls
+            gt_cls = gt == cls
             iou = compute_iou(pred_cls, gt_cls)
             ious.append(iou)
     return np.mean(ious) if ious else 0.0
 
 
 # 计算边界F-score
-def compute_boundary_f_score(pred_mask: np.ndarray, gt_mask: np.ndarray,
-                             boundary_threshold: int = 255,
-                             kernel_size: int = 5) -> float:
+def compute_boundary_f_score(
+    pred_mask: np.ndarray,
+    gt_mask: np.ndarray,
+    boundary_threshold: int = 255,
+    kernel_size: int = 5,
+) -> float:
     pred_boundary = cv2.Canny(pred_mask, 50, 150)
     gt_boundary = cv2.Canny(gt_mask, 50, 150)
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
     gt_boundary_dilated = cv2.dilate(gt_boundary, kernel, iterations=1)
 
-    tp = np.logical_and(pred_boundary > 0, gt_boundary_dilated > 0).sum()
-    fp = np.logical_and(pred_boundary > 0, gt_boundary_dilated == 0).sum()
-    fn = np.logical_and(pred_boundary == 0, gt_boundary > 0).sum()
+    pred_edges = pred_boundary >= boundary_threshold
+    gt_edges = gt_boundary >= boundary_threshold
+    dilated_gt_edges = gt_boundary_dilated >= boundary_threshold
+    tp = np.logical_and(pred_edges, dilated_gt_edges).sum()
+    fp = np.logical_and(pred_edges, np.logical_not(dilated_gt_edges)).sum()
+    fn = np.logical_and(np.logical_not(pred_edges), gt_edges).sum()
 
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f_score = (2 * precision * recall / (precision + recall)
-               if (precision + recall) > 0 else 0.0)
+    f_score = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
+    )
 
     return f_score
 
 
 # 加载统一格式的数据集（images/ 和 masks/ 子目录）
-def load_images_masks_format(data_dir: str) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+def load_images_masks_format(
+    data_dir: str,
+) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     images = []
     masks = []
     image_dir = os.path.join(data_dir, "images")
@@ -86,7 +103,9 @@ def load_images_masks_format(data_dir: str) -> Tuple[List[np.ndarray], List[np.n
 
 
 # 直接加载Cityscapes原始格式数据集
-def load_cityscapes_format(cityscapes_dir: str, split: str = "val") -> Tuple[List[np.ndarray], List[np.ndarray]]:
+def load_cityscapes_format(
+    cityscapes_dir: str, split: str = "val"
+) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     images = []
     masks = []
     image_dir = os.path.join(cityscapes_dir, "leftImg8bit", split)
@@ -106,8 +125,12 @@ def load_cityscapes_format(cityscapes_dir: str, split: str = "val") -> Tuple[Lis
                 continue
             prefix = img_file.replace("_leftImg8bit.png", "")
             img_path = os.path.join(city_image_dir, img_file)
-            label_id_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_labelIds.png")
-            polygon_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_polygons.json")
+            label_id_path = os.path.join(
+                city_gt_dir, f"{prefix}_gtFine_labelIds.png"
+            )
+            polygon_path = os.path.join(
+                city_gt_dir, f"{prefix}_gtFine_polygons.json"
+            )
             img = cv2.imread(img_path)
             if img is None:
                 continue
@@ -134,8 +157,9 @@ def load_cityscapes_format(cityscapes_dir: str, split: str = "val") -> Tuple[Lis
                         cv2.fillPoly(mask, [polygon], 255)
                 if mask.shape != img.shape[:2]:
                     mask = cv2.resize(
-                        mask, (img.shape[1], img.shape[0]),
-                        interpolation=cv2.INTER_NEAREST
+                        mask,
+                        (img.shape[1], img.shape[0]),
+                        interpolation=cv2.INTER_NEAREST,
                     )
             else:
                 continue
@@ -148,19 +172,24 @@ def load_cityscapes_format(cityscapes_dir: str, split: str = "val") -> Tuple[Lis
 
 # 自动检测数据集格式
 def detect_dataset_format(data_dir: str) -> str:
-    if (os.path.exists(os.path.join(data_dir, "images")) and
-            os.path.exists(os.path.join(data_dir, "masks"))):
+    if os.path.exists(os.path.join(data_dir, "images")) and os.path.exists(
+        os.path.join(data_dir, "masks")
+    ):
         return "images_masks"
-    elif (os.path.exists(os.path.join(data_dir, "leftImg8bit")) and
-            os.path.exists(os.path.join(data_dir, "gtFine"))):
+    elif os.path.exists(
+        os.path.join(data_dir, "leftImg8bit")
+    ) and os.path.exists(os.path.join(data_dir, "gtFine")):
         return "cityscapes"
     else:
         return "unknown"
 
 
 # 根据格式加载数据集
-def load_dataset(data_dir: str, dataset_format: str = None,
-                 split: str = "val") -> Tuple[List[np.ndarray], List[np.ndarray]]:
+def load_dataset(
+    data_dir: str,
+    dataset_format: Optional[str] = None,
+    split: str = "val",
+) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     if dataset_format is None:
         dataset_format = detect_dataset_format(data_dir)
 
@@ -170,16 +199,19 @@ def load_dataset(data_dir: str, dataset_format: str = None,
         return load_cityscapes_format(data_dir, split)
     else:
         raise ValueError(
-            f"Unknown dataset format. Expected 'images_masks' or 'cityscapes'. "
-            f"Data directory should contain 'images/' and 'masks/' subdirs, "
-            f"or be a Cityscapes root directory with 'leftImg8bit/' "
-            f"and 'gtFine/'."
+            "Unknown dataset format. Expected 'images_masks' or 'cityscapes'. "
+            "Data directory should contain 'images/' and 'masks/' subdirs, "
+            "or be a Cityscapes root directory with 'leftImg8bit/' "
+            "and 'gtFine/'."
         )
 
 
 # 评估RoadSegmenter在给定数据集上的性能
-def evaluate_segmenter(segmenter: RoadSegmenter, images: List[np.ndarray],
-                       gt_masks: List[np.ndarray]) -> dict:
+def evaluate_segmenter(
+    segmenter: RoadSegmenter,
+    images: List[np.ndarray],
+    gt_masks: List[np.ndarray],
+) -> dict:
     pred_masks = []
     ious = []
     boundary_f_scores = []
@@ -189,7 +221,9 @@ def evaluate_segmenter(segmenter: RoadSegmenter, images: List[np.ndarray],
         result = segmenter.predict(img)
         pred_masks.append(result.mask)
         ious.append(compute_iou(result.mask > 127, gt_mask > 127))
-        boundary_f_scores.append(compute_boundary_f_score(result.mask, gt_mask))
+        boundary_f_scores.append(
+            compute_boundary_f_score(result.mask, gt_mask)
+        )
         inference_times.append(result.inference_time_ms)
 
     results = {
@@ -197,8 +231,11 @@ def evaluate_segmenter(segmenter: RoadSegmenter, images: List[np.ndarray],
         "mIoU": compute_miou(pred_masks, gt_masks),
         "mean_boundary_f_score": np.mean(boundary_f_scores),
         "mean_inference_time_ms": np.mean(inference_times),
-        "fps": (1000.0 / np.mean(inference_times)
-                if np.mean(inference_times) > 0 else 0),
+        "fps": (
+            1000.0 / np.mean(inference_times)
+            if np.mean(inference_times) > 0
+            else 0
+        ),
         "num_samples": len(images),
     }
 
@@ -206,38 +243,42 @@ def evaluate_segmenter(segmenter: RoadSegmenter, images: List[np.ndarray],
 
 
 # 命令行入口函数
-def main():
-    parser = argparse.ArgumentParser(description="Evaluate RoadSegmenter performance")
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Evaluate RoadSegmenter performance"
+    )
     parser.add_argument(
         "--config",
         type=str,
         default="configs/road_segmenter.yaml",
-        help="Path to configuration file"
+        help="Path to configuration file",
     )
     parser.add_argument(
         "--data_dir",
         type=str,
         required=True,
-        help="Path to evaluation dataset directory"
+        help="Path to evaluation dataset directory",
     )
     parser.add_argument(
         "--checkpoint",
         type=str,
         default=None,
-        help="Path to pretrained checkpoint"
+        help="Path to pretrained checkpoint",
     )
     parser.add_argument(
         "--dataset_format",
         type=str,
         default=None,
-        help=("Dataset format: 'images_masks' or 'cityscapes'. "
-              "Auto-detected if not specified.")
+        help=(
+            "Dataset format: 'images_masks' or 'cityscapes'. "
+            "Auto-detected if not specified."
+        ),
     )
     parser.add_argument(
         "--split",
         type=str,
         default="val",
-        help="Dataset split for Cityscapes format: 'train', 'val', or 'test'"
+        help="Dataset split for Cityscapes format: 'train', 'val', or 'test'",
     )
     args = parser.parse_args()
 
@@ -248,46 +289,33 @@ def main():
         checkpoint_dir = "checkpoints"
         available_checkpoints = []
         if os.path.exists(checkpoint_dir):
-            available_checkpoints = [f for f in os.listdir(checkpoint_dir)
-                                     if f.endswith(".pth")]
+            available_checkpoints = [
+                f for f in os.listdir(checkpoint_dir) if f.endswith(".pth")
+            ]
 
         if available_checkpoints:
-            voc_checkpoints = [f for f in available_checkpoints if "voc" in f.lower()]
+            voc_checkpoints = [
+                f for f in available_checkpoints if "voc" in f.lower()
+            ]
             if voc_checkpoints:
-                checkpoint_path = os.path.join(checkpoint_dir, voc_checkpoints[0])
+                checkpoint_path = os.path.join(
+                    checkpoint_dir, voc_checkpoints[0]
+                )
             else:
-                backbone_checkpoints = [f for f in available_checkpoints if "backbone" in f.lower()]
+                backbone_checkpoints = [
+                    f for f in available_checkpoints if "backbone" in f.lower()
+                ]
                 if backbone_checkpoints:
-                    checkpoint_path = os.path.join(checkpoint_dir, backbone_checkpoints[0])
+                    checkpoint_path = os.path.join(
+                        checkpoint_dir, backbone_checkpoints[0]
+                    )
 
     if checkpoint_path is not None:
         config.model.checkpoint_path = checkpoint_path
 
         checkpoint_name = os.path.basename(checkpoint_path).lower()
 
-        if "mit-b0" in checkpoint_name or "mit_b0" in checkpoint_name:
-            config.model.encoder_name = "mit_b0"
-
-        elif "mit-b1" in checkpoint_name or "mit_b1" in checkpoint_name:
-            config.model.encoder_name = "mit_b1"
-
-        elif "mit-b2" in checkpoint_name or "mit_b2" in checkpoint_name:
-            config.model.encoder_name = "mit_b2"
-
-        elif "mit-b3" in checkpoint_name or "mit_b3" in checkpoint_name:
-            config.model.encoder_name = "mit_b3"
-
-        elif "mit-b4" in checkpoint_name or "mit_b4" in checkpoint_name:
-            config.model.encoder_name = "mit_b4"
-
-        elif "mit-b5" in checkpoint_name or "mit_b5" in checkpoint_name:
-            config.model.encoder_name = "mit_b5"
-
-        print(f"Using encoder: {config.model.encoder_name}")
-
-
         if "voc" in checkpoint_name:
-
             config.model.num_classes = 21
 
             # VOC中road对应Train ID=13
@@ -296,7 +324,6 @@ def main():
             print("Using VOC checkpoint (21 classes)")
 
         elif "cityscapes" in checkpoint_name:
-
             config.model.num_classes = 19
 
             # road = TrainID 0
@@ -306,7 +333,6 @@ def main():
             print("Road TrainID = 0")
 
         else:
-
             config.model.num_classes = 19
             config.labels.road_label_mapping["cityscapes"] = 0
 
@@ -316,7 +342,9 @@ def main():
 
     segmenter = RoadSegmenter(config=config)
 
-    images, gt_masks = load_dataset(args.data_dir, args.dataset_format, args.split)
+    images, gt_masks = load_dataset(
+        args.data_dir, args.dataset_format, args.split
+    )
     print(f"Loaded {len(images)} evaluation samples")
     results = evaluate_segmenter(segmenter, images, gt_masks)
 

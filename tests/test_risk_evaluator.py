@@ -33,7 +33,6 @@ def build_evaluator(**overrides: object) -> RiskEvaluator:
         "notice_distance_m": 30.0,
         "warning_distance_m": 15.0,
         "danger_distance_m": 6.0,
-        "notice_ttc_s": 5.0,
         "warning_ttc_s": 3.0,
         "danger_ttc_s": 1.5,
         "track_iou_threshold": 0.30,
@@ -96,15 +95,9 @@ def build_known_object(
 def encode_mask_rle(mask: np.ndarray) -> dict:
     flattened = np.ravel(mask > 0, order="F").astype(np.uint8)
     change_indices = np.flatnonzero(np.diff(flattened)) + 1
-    run_starts = np.concatenate(
-        (np.array([0]), change_indices)
-    )
-    run_ends = np.concatenate(
-        (change_indices, np.array([flattened.size]))
-    )
-    counts: List[int] = (
-        run_ends - run_starts
-    ).tolist()
+    run_starts = np.concatenate((np.array([0]), change_indices))
+    run_ends = np.concatenate((change_indices, np.array([flattened.size])))
+    counts: List[int] = (run_ends - run_starts).tolist()
     if flattened.size > 0 and flattened[0] == 1:
         counts.insert(0, 0)
     return {
@@ -159,9 +152,7 @@ def test_stable_close_conflict_becomes_danger() -> None:
                 frame_id=frame_id,
                 fps=10.0,
                 corridor_result=build_corridor(),
-                known_objects=[
-                    build_known_object(distance=4.0)
-                ],
+                known_objects=[build_known_object(distance=4.0)],
                 unknown_regions=[],
             )
         )
@@ -210,9 +201,7 @@ def test_missing_distance_conflict_is_warning() -> None:
             frame_id=frame_id,
             fps=10.0,
             corridor_result=build_corridor(),
-            known_objects=[
-                build_known_object(distance=None)
-            ],
+            known_objects=[build_known_object(distance=None)],
             unknown_regions=[],
         )
 
@@ -239,9 +228,7 @@ def test_video_distance_history_generates_ttc() -> None:
             frame_id=frame_id,
             fps=10.0,
             corridor_result=build_corridor(),
-            known_objects=[
-                build_known_object(distance=distance)
-            ],
+            known_objects=[build_known_object(distance=distance)],
             unknown_regions=[],
         )
 
@@ -367,9 +354,7 @@ def test_far_obstacle_ttc_does_not_trigger_danger() -> None:
             frame_id=frame_id,
             fps=10.0,
             corridor_result=build_corridor(),
-            known_objects=[
-                build_known_object(distance=distance)
-            ],
+            known_objects=[build_known_object(distance=distance)],
             unknown_regions=[],
         )
 

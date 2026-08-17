@@ -54,9 +54,7 @@ class RiskEvaluator:
         self._intersection_ratio = float(
             config.get("intersection_ratio", 0.15)
         )
-        self._near_margin_ratio = float(
-            config.get("near_margin_ratio", 0.025)
-        )
+        self._near_margin_ratio = float(config.get("near_margin_ratio", 0.025))
         self._footprint_height_ratio = float(
             config.get("footprint_height_ratio", 0.25)
         )
@@ -72,42 +70,23 @@ class RiskEvaluator:
         self._max_known_bbox_border_count = int(
             config.get("max_known_bbox_border_count", 2)
         )
-        self._notice_distance_m = float(
-            config.get("notice_distance_m", 30.0)
-        )
+        self._notice_distance_m = float(config.get("notice_distance_m", 30.0))
         self._warning_distance_m = float(
             config.get("warning_distance_m", 15.0)
         )
-        self._danger_distance_m = float(
-            config.get("danger_distance_m", 6.0)
-        )
-        self._notice_ttc_s = float(
-            config.get("notice_ttc_s", 5.0)
-        )
-        self._warning_ttc_s = float(
-            config.get("warning_ttc_s", 3.0)
-        )
-        self._danger_ttc_s = float(
-            config.get("danger_ttc_s", 1.5)
-        )
+        self._danger_distance_m = float(config.get("danger_distance_m", 6.0))
+        self._warning_ttc_s = float(config.get("warning_ttc_s", 3.0))
+        self._danger_ttc_s = float(config.get("danger_ttc_s", 1.5))
         self._track_iou_threshold = float(
             config.get("track_iou_threshold", 0.30)
         )
-        self._history_size = int(
-            config.get("history_size", 15)
-        )
-        self._confirm_frames = int(
-            config.get("confirm_frames", 3)
-        )
-        self._min_ttc_samples = int(
-            config.get("min_ttc_samples", 8)
-        )
+        self._history_size = int(config.get("history_size", 15))
+        self._confirm_frames = int(config.get("confirm_frames", 3))
+        self._min_ttc_samples = int(config.get("min_ttc_samples", 8))
         self._min_ttc_observation_s = float(
             config.get("min_ttc_observation_s", 0.25)
         )
-        self._min_ttc_r_squared = float(
-            config.get("min_ttc_r_squared", 0.80)
-        )
+        self._min_ttc_r_squared = float(config.get("min_ttc_r_squared", 0.80))
         self._min_closing_observations_ratio = float(
             config.get("min_closing_observations_ratio", 0.75)
         )
@@ -120,9 +99,7 @@ class RiskEvaluator:
         self._max_closing_speed_mps = float(
             config.get("max_closing_speed_mps", 25.0)
         )
-        self._max_track_gap_s = float(
-            config.get("max_track_gap_s", 0.5)
-        )
+        self._max_track_gap_s = float(config.get("max_track_gap_s", 0.5))
         self._validate_configuration()
         self._tracks: Dict[str, dict] = {}
         self._next_track_index = 1
@@ -185,12 +162,8 @@ class RiskEvaluator:
                 known_objects=known_objects,
                 unknown_regions=unknown_regions,
             )
-            raw_level, raw_reason = self._select_frame_risk(
-                obstacle_risks
-            )
-            inference_time_ms = (
-                perf_counter() - start_time
-            ) * 1000.0
+            raw_level, raw_reason = self._select_frame_risk(obstacle_risks)
+            inference_time_ms = (perf_counter() - start_time) * 1000.0
             return RiskEvaluationResult(
                 risk_level=raw_level,
                 major_reason=raw_reason,
@@ -207,59 +180,39 @@ class RiskEvaluator:
             return self._build_unavailable_result(
                 start_time=start_time,
                 error_code=INFERENCE_ERROR,
-                error_message=(
-                    f"{type(error).__name__}: {error}"
-                ),
+                error_message=(f"{type(error).__name__}: {error}"),
                 system_status=SystemStatus.UNAVAILABLE,
             )
 
     # 校验配置阈值范围和大小关系
     def _validate_configuration(self) -> None:
         if not 0.0 <= self._intersection_ratio <= 1.0:
-            raise ValueError(
-                "intersection_ratio must be between 0 and 1."
-            )
+            raise ValueError("intersection_ratio must be between 0 and 1.")
         if not 0.0 <= self._near_margin_ratio <= 0.5:
-            raise ValueError(
-                "near_margin_ratio must be between 0 and 0.5."
-            )
+            raise ValueError("near_margin_ratio must be between 0 and 0.5.")
         if not 0.0 < self._footprint_height_ratio <= 1.0:
-            raise ValueError(
-                "footprint_height_ratio must be in (0, 1]."
-            )
+            raise ValueError("footprint_height_ratio must be in (0, 1].")
         if not 0.0 < self._max_corridor_lateral_ratio <= 1.0:
-            raise ValueError(
-                "max_corridor_lateral_ratio must be in (0, 1]."
-            )
+            raise ValueError("max_corridor_lateral_ratio must be in (0, 1].")
         if not 0.0 <= self._min_known_confidence <= 1.0:
-            raise ValueError(
-                "min_known_confidence must be between 0 and 1."
-            )
+            raise ValueError("min_known_confidence must be between 0 and 1.")
         if not 0.0 < self._max_known_bbox_area_ratio <= 1.0:
-            raise ValueError(
-                "max_known_bbox_area_ratio must be in (0, 1]."
-            )
+            raise ValueError("max_known_bbox_area_ratio must be in (0, 1].")
         if not 0 <= self._max_known_bbox_border_count <= 4:
             raise ValueError(
                 "max_known_bbox_border_count must be between 0 and 4."
             )
         if not (
-            0.0 < self._danger_distance_m
+            0.0
+            < self._danger_distance_m
             <= self._warning_distance_m
             <= self._notice_distance_m
         ):
             raise ValueError(
-                "Distance thresholds must increase from danger "
-                "to notice."
+                "Distance thresholds must increase from danger to notice."
             )
-        if not (
-            0.0 < self._danger_ttc_s
-            <= self._warning_ttc_s
-            <= self._notice_ttc_s
-        ):
-            raise ValueError(
-                "TTC thresholds must increase from danger to notice."
-            )
+        if not (0.0 < self._danger_ttc_s <= self._warning_ttc_s):
+            raise ValueError("danger_ttc_s must not exceed warning_ttc_s.")
         if self._history_size < 3:
             raise ValueError("history_size must be at least 3.")
         if self._confirm_frames < 1:
@@ -269,29 +222,16 @@ class RiskEvaluator:
                 "min_ttc_samples must be between 3 and history_size."
             )
         if self._min_ttc_observation_s <= 0.0:
-            raise ValueError(
-                "min_ttc_observation_s must be positive."
-            )
+            raise ValueError("min_ttc_observation_s must be positive.")
         if not 0.0 <= self._min_ttc_r_squared <= 1.0:
+            raise ValueError("min_ttc_r_squared must be between 0 and 1.")
+        if not (0.5 <= self._min_closing_observations_ratio <= 1.0):
             raise ValueError(
-                "min_ttc_r_squared must be between 0 and 1."
+                "min_closing_observations_ratio must be between 0.5 and 1."
             )
-        if not (
-            0.5
-            <= self._min_closing_observations_ratio
-            <= 1.0
-        ):
+        if self._max_closing_speed_mps <= self._min_closing_speed_mps:
             raise ValueError(
-                "min_closing_observations_ratio must be "
-                "between 0.5 and 1."
-            )
-        if (
-            self._max_closing_speed_mps
-            <= self._min_closing_speed_mps
-        ):
-            raise ValueError(
-                "max_closing_speed_mps must exceed "
-                "min_closing_speed_mps."
+                "max_closing_speed_mps must exceed min_closing_speed_mps."
             )
         if self._max_track_gap_s <= 0.0:
             raise ValueError("max_track_gap_s must be positive.")
@@ -336,10 +276,7 @@ class RiskEvaluator:
             return False
         if not np.any(corridor_mask > 0):
             return False
-        return (
-            corridor_result.confidence
-            >= self._min_corridor_confidence
-        )
+        return corridor_result.confidence >= self._min_corridor_confidence
 
     # 构造关闭状态的风险结果
     def _build_disabled_result(
@@ -367,9 +304,7 @@ class RiskEvaluator:
         error_message: str,
         system_status: str,
     ) -> RiskEvaluationResult:
-        inference_time_ms = (
-            perf_counter() - start_time
-        ) * 1000.0
+        inference_time_ms = (perf_counter() - start_time) * 1000.0
         return RiskEvaluationResult(
             risk_level="notice",
             major_reason="risk_evaluation_unavailable",
@@ -408,13 +343,15 @@ class RiskEvaluator:
                 bbox=detected_object.bbox,
                 image_shape=(height, width),
             )
-            candidates.append({
-                "source": "known",
-                "class_name": detected_object.class_name,
-                "bbox": detected_object.bbox,
-                "distance": detected_object.distance,
-                "occupancy_mask": occupancy_mask,
-            })
+            candidates.append(
+                {
+                    "source": "known",
+                    "class_name": detected_object.class_name,
+                    "bbox": detected_object.bbox,
+                    "distance": detected_object.distance,
+                    "occupancy_mask": occupancy_mask,
+                }
+            )
 
         for unknown_region in unknown_regions:
             if not isinstance(unknown_region, UnknownRegion):
@@ -428,13 +365,15 @@ class RiskEvaluator:
                     bbox=unknown_region.bbox,
                     image_shape=(height, width),
                 )
-            candidates.append({
-                "source": "unknown",
-                "class_name": None,
-                "bbox": unknown_region.bbox,
-                "distance": unknown_region.distance,
-                "occupancy_mask": occupancy_mask,
-            })
+            candidates.append(
+                {
+                    "source": "unknown",
+                    "class_name": None,
+                    "bbox": unknown_region.bbox,
+                    "distance": unknown_region.distance,
+                    "occupancy_mask": occupancy_mask,
+                }
+            )
 
         self._associate_tracks(candidates, frame_id, fps)
         obstacle_risks = []
@@ -485,9 +424,7 @@ class RiskEvaluator:
             return False
 
         height, width = image_shape
-        x1, y1, x2, y2 = [
-            int(value) for value in detected_object.bbox
-        ]
+        x1, y1, x2, y2 = [int(value) for value in detected_object.bbox]
         x1 = max(0, min(width - 1, x1))
         x2 = max(0, min(width, x2))
         y1 = max(0, min(height - 1, y1))
@@ -501,12 +438,14 @@ class RiskEvaluator:
         if area_ratio > self._max_known_bbox_area_ratio:
             return False
 
-        border_count = sum([
-            x1 == 0,
-            y1 == 0,
-            x2 == width,
-            y2 == height,
-        ])
+        border_count = sum(
+            [
+                x1 == 0,
+                y1 == 0,
+                x2 == width,
+                y2 == height,
+            ]
+        )
         return border_count <= self._max_known_bbox_border_count
 
     # 将边界框底部转换为近似路面占用掩码
@@ -558,7 +497,7 @@ class RiskEvaluator:
             if count < 0 or offset + count > total_pixels:
                 return None
             if foreground and count > 0:
-                flattened[offset:offset + count] = 255
+                flattened[offset : offset + count] = 255
             offset += count
             foreground = not foreground
         if offset != total_pixels:
@@ -598,20 +537,13 @@ class RiskEvaluator:
         if obstacle_area == 0:
             return 0.0, "outside"
         corridor_pixels = corridor_mask > 0
-        intersection = int(
-            np.count_nonzero(
-                obstacle_pixels & corridor_pixels
-            )
-        )
+        intersection = int(np.count_nonzero(obstacle_pixels & corridor_pixels))
         overlap = intersection / float(obstacle_area)
         contact_in_corridor = self._is_contact_in_mask(
             obstacle_pixels=obstacle_pixels,
             target_mask=corridor_pixels,
         )
-        if (
-            overlap >= self._intersection_ratio
-            and contact_in_corridor
-        ):
+        if overlap >= self._intersection_ratio and contact_in_corridor:
             return float(overlap), "intersecting"
         if np.any(obstacle_pixels & (near_mask > 0)):
             return float(overlap), "near"
@@ -632,9 +564,7 @@ class RiskEvaluator:
         height = bottom_y - top_y + 1
         contact_band_height = max(1, int(round(height * 0.05)))
         contact_band_y = bottom_y - contact_band_height + 1
-        band_x_coordinates = x_coordinates[
-            y_coordinates >= contact_band_y
-        ]
+        band_x_coordinates = x_coordinates[y_coordinates >= contact_band_y]
         if band_x_coordinates.size == 0:
             return False
 
@@ -646,23 +576,18 @@ class RiskEvaluator:
         if not target_mask[bottom_y, contact_x]:
             return False
 
-        corridor_x_coordinates = np.flatnonzero(
-            target_mask[bottom_y]
-        )
+        corridor_x_coordinates = np.flatnonzero(target_mask[bottom_y])
         if corridor_x_coordinates.size == 0:
             return False
         corridor_left = float(corridor_x_coordinates[0])
         corridor_right = float(corridor_x_coordinates[-1])
-        corridor_center = (
-            corridor_left + corridor_right
-        ) / 2.0
+        corridor_center = (corridor_left + corridor_right) / 2.0
         corridor_half_width = max(
             (corridor_right - corridor_left) / 2.0,
             0.5,
         )
         lateral_ratio = (
-            abs(float(contact_x) - corridor_center)
-            / corridor_half_width
+            abs(float(contact_x) - corridor_center) / corridor_half_width
         )
         return lateral_ratio <= self._max_corridor_lateral_ratio
 
@@ -689,10 +614,7 @@ class RiskEvaluator:
                     candidate["bbox"],
                     track["bbox"],
                 )
-                if (
-                    iou >= self._track_iou_threshold
-                    and iou > best_iou
-                ):
+                if iou >= self._track_iou_threshold and iou > best_iou:
                     best_track_id = track_id
                     best_iou = iou
             if best_track_id is None:
@@ -716,10 +638,7 @@ class RiskEvaluator:
         candidate: dict,
         frame_id: int,
     ) -> str:
-        track_id = (
-            f"{candidate['source']}-track-"
-            f"{self._next_track_index:04d}"
-        )
+        track_id = f"{candidate['source']}-track-{self._next_track_index:04d}"
         self._next_track_index += 1
         distance_history: Deque[Tuple[int, float]] = deque(
             maxlen=self._history_size
@@ -746,9 +665,7 @@ class RiskEvaluator:
         fps: float,
     ) -> None:
         track = self._tracks[track_id]
-        gap_s = (
-            frame_id - track["last_frame_id"]
-        ) / fps
+        gap_s = (frame_id - track["last_frame_id"]) / fps
         if gap_s <= self._max_track_gap_s:
             track["stable_frames"] += 1
         else:
@@ -758,9 +675,7 @@ class RiskEvaluator:
         track["last_frame_id"] = frame_id
         distance = candidate["distance"]
         if self._is_valid_distance(distance):
-            track["distance_history"].append(
-                (frame_id, float(distance))
-            )
+            track["distance_history"].append((frame_id, float(distance)))
 
     # 删除超过允许时间未再次出现的历史轨迹
     def _prune_tracks(
@@ -771,9 +686,8 @@ class RiskEvaluator:
         stale_track_ids = [
             track_id
             for track_id, track in self._tracks.items()
-            if (
-                frame_id - track["last_frame_id"]
-            ) / fps > self._max_track_gap_s
+            if (frame_id - track["last_frame_id"]) / fps
+            > self._max_track_gap_s
         ]
         for track_id in stale_track_ids:
             del self._tracks[track_id]
@@ -807,24 +721,16 @@ class RiskEvaluator:
 
         distance_changes = np.diff(distances)
         closing_ratio = float(
-            np.count_nonzero(distance_changes < 0.0)
-            / distance_changes.size
+            np.count_nonzero(distance_changes < 0.0) / distance_changes.size
         )
-        if (
-            closing_ratio
-            < self._min_closing_observations_ratio
-        ):
+        if closing_ratio < self._min_closing_observations_ratio:
             return None
 
         slope, intercept = np.polyfit(times, distances, 1)
         slope = float(slope)
         fitted_distances = slope * times + float(intercept)
-        residual_sum = float(
-            np.sum((distances - fitted_distances) ** 2)
-        )
-        total_sum = float(
-            np.sum((distances - np.mean(distances)) ** 2)
-        )
+        residual_sum = float(np.sum((distances - fitted_distances) ** 2))
+        total_sum = float(np.sum((distances - np.mean(distances)) ** 2))
         if total_sum <= np.finfo(np.float64).eps:
             return None
         r_squared = 1.0 - residual_sum / total_sum
@@ -882,32 +788,25 @@ class RiskEvaluator:
         if relation == "intersecting":
             if danger_by_distance:
                 return "danger", (
-                    f"{source}_obstacle_intersecting_"
-                    "critical_distance"
+                    f"{source}_obstacle_intersecting_critical_distance"
                 )
             if danger_by_ttc:
                 return "danger", (
-                    f"{source}_obstacle_intersecting_"
-                    "critical_ttc"
+                    f"{source}_obstacle_intersecting_critical_ttc"
                 )
             if warning_by_distance:
                 return "warning", (
-                    f"{source}_obstacle_intersecting_"
-                    "warning_distance"
+                    f"{source}_obstacle_intersecting_warning_distance"
                 )
             if warning_by_ttc:
                 return "warning", (
-                    f"{source}_obstacle_intersecting_"
-                    "warning_ttc"
+                    f"{source}_obstacle_intersecting_warning_ttc"
                 )
             if not self._is_valid_distance(distance):
                 return "warning", (
-                    f"{source}_obstacle_intersecting_"
-                    "distance_unavailable"
+                    f"{source}_obstacle_intersecting_distance_unavailable"
                 )
-            return "notice", (
-                f"{source}_obstacle_intersecting_far"
-            )
+            return "notice", (f"{source}_obstacle_intersecting_far")
 
         if danger_by_distance or warning_by_ttc:
             return "warning", f"{source}_obstacle_near_close"
@@ -947,26 +846,20 @@ class RiskEvaluator:
         second_x1, second_y1, second_x2, second_y2 = second_bbox
         intersection_width = max(
             0,
-            min(first_x2, second_x2)
-            - max(first_x1, second_x1),
+            min(first_x2, second_x2) - max(first_x1, second_x1),
         )
         intersection_height = max(
             0,
-            min(first_y2, second_y2)
-            - max(first_y1, second_y1),
+            min(first_y2, second_y2) - max(first_y1, second_y1),
         )
-        intersection_area = (
-            intersection_width * intersection_height
-        )
+        intersection_area = intersection_width * intersection_height
         first_area = max(
             0,
-            (first_x2 - first_x1)
-            * (first_y2 - first_y1),
+            (first_x2 - first_x1) * (first_y2 - first_y1),
         )
         second_area = max(
             0,
-            (second_x2 - second_x1)
-            * (second_y2 - second_y1),
+            (second_x2 - second_x1) * (second_y2 - second_y1),
         )
         union_area = first_area + second_area - intersection_area
         if union_area <= 0:

@@ -6,6 +6,7 @@
 最后修改日期: 2026-07-22
 """
 
+from types import TracebackType
 from typing import Iterator
 from typing import Optional
 from typing import Tuple
@@ -17,6 +18,7 @@ import numpy as np
 class VideoReader:
     """负责从视频文件逐帧读取图像"""
 
+    # 初始化视频路径和跳帧参数
     def __init__(self, video_path: str, frame_skip: int = 1) -> None:
         self.video_path = video_path
         self.frame_skip = max(frame_skip, 1)
@@ -72,5 +74,11 @@ class VideoReader:
         self.open()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    # 退出上下文时释放视频资源
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
         self.release()

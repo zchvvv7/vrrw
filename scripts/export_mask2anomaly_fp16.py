@@ -51,13 +51,9 @@ def load_checkpoint(input_path: Path) -> dict:
     if not isinstance(checkpoint, dict):
         raise TypeError("Checkpoint must be a dictionary.")
     if "model" not in checkpoint:
-        raise KeyError(
-            "Checkpoint does not contain model weights."
-        )
+        raise KeyError("Checkpoint does not contain model weights.")
     if not isinstance(checkpoint["model"], dict):
-        raise TypeError(
-            "Checkpoint model weights must be a dictionary."
-        )
+        raise TypeError("Checkpoint model weights must be a dictionary.")
     return checkpoint
 
 
@@ -100,18 +96,12 @@ def export_fp16_checkpoint(
     output_path: Path,
 ) -> str:
     if not input_path.is_file():
-        raise FileNotFoundError(
-            f"Input checkpoint not found: {input_path}"
-        )
+        raise FileNotFoundError(f"Input checkpoint not found: {input_path}")
     if input_path.resolve() == output_path.resolve():
-        raise ValueError(
-            "Output path cannot overwrite input checkpoint."
-        )
+        raise ValueError("Output path cannot overwrite input checkpoint.")
 
     checkpoint = load_checkpoint(input_path)
-    fp16_model_state = convert_model_state(
-        checkpoint["model"]
-    )
+    fp16_model_state = convert_model_state(checkpoint["model"])
     output_path.parent.mkdir(
         parents=True,
         exist_ok=True,

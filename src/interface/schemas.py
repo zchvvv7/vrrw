@@ -111,9 +111,7 @@ class RiskEvaluationResult:
     @property
     def ttc(self) -> Optional[float]:
         valid_values = [
-            item.ttc
-            for item in self.obstacle_risks
-            if item.ttc is not None
+            item.ttc for item in self.obstacle_risks if item.ttc is not None
         ]
         if not valid_values:
             return None
@@ -125,10 +123,7 @@ class RiskEvaluationResult:
         if not self.obstacle_risks:
             return 0.0
         return float(
-            max(
-                item.corridor_overlap
-                for item in self.obstacle_risks
-            )
+            max(item.corridor_overlap for item in self.obstacle_risks)
         )
 
 
@@ -156,18 +151,22 @@ class RoadSegmentResult:
     system_status: str = SystemStatus.NORMAL
     quality_metrics: Optional[dict] = None
 
+    # 判断道路分割是否成功
     @property
     def is_successful(self) -> bool:
         return self.error_code == 0
 
+    # 判断道路分割是否处于降级状态
     @property
     def is_degraded(self) -> bool:
         return self.system_status == SystemStatus.DEGRADED
 
+    # 判断道路分割是否不可用
     @property
     def is_unavailable(self) -> bool:
         return self.system_status == SystemStatus.UNAVAILABLE
 
+    # 将道路分割结果转换为字典
     def to_dict(self) -> dict:
         return {
             "mask": self.mask,

@@ -89,8 +89,7 @@ class UnknownDetector:
     def _validate_configuration(self) -> None:
         if self._backend_name != "mask2anomaly":
             raise ValueError(
-                f"Unsupported unknown detector backend: "
-                f"{self._backend_name}"
+                f"Unsupported unknown detector backend: {self._backend_name}"
             )
         if not 0.0 <= self._pixel_threshold <= 1.0:
             raise ValueError("pixel_threshold must be between 0 and 1.")
@@ -109,9 +108,7 @@ class UnknownDetector:
                 "known_box_padding_ratio must be between 0 and 1."
             )
         if self._known_box_min_padding < 0:
-            raise ValueError(
-                "known_box_min_padding cannot be negative."
-            )
+            raise ValueError("known_box_min_padding cannot be negative.")
         self._validate_kernel_size(
             self._roi_dilate_kernel_size,
             "roi_dilate_kernel_size",
@@ -128,18 +125,19 @@ class UnknownDetector:
         config_name: str,
     ) -> None:
         if kernel_size <= 0 or kernel_size % 2 == 0:
-            raise ValueError(
-                f"{config_name} must be a positive odd integer."
-            )
+            raise ValueError(f"{config_name} must be a positive odd integer.")
 
     # 初始化Mask2Anomaly模型后端
     def _initialize_backend(self, config: dict) -> None:
         try:
-            from src.modules.mask2anomaly_backend import (Mask2AnomalyBackend,)
+            from src.modules.mask2anomaly_backend import (
+                Mask2AnomalyBackend,
+            )
+
             self._backend = Mask2AnomalyBackend(config)
         except Exception as error:
             self._backend = None
-            self._backend_error = (f"{type(error).__name__}: {error}")
+            self._backend_error = f"{type(error).__name__}: {error}"
 
     # 检查输入图像和道路掩码是否合法
     def _validate_input(
@@ -251,18 +249,14 @@ class UnknownDetector:
             padding = max(
                 self._known_box_min_padding,
                 int(
-                    max(box_width, box_height)
-                    * self._known_box_padding_ratio
+                    max(box_width, box_height) * self._known_box_padding_ratio
                 ),
             )
             clipped_x1 = max(0, min(width, x1 - padding))
             clipped_y1 = max(0, min(height, y1 - padding))
             clipped_x2 = max(0, min(width, x2 + padding))
             clipped_y2 = max(0, min(height, y2 + padding))
-            if (
-                clipped_x1 >= clipped_x2
-                or clipped_y1 >= clipped_y2
-            ):
+            if clipped_x1 >= clipped_x2 or clipped_y1 >= clipped_y2:
                 continue
             exclusion_mask[
                 clipped_y1:clipped_y2,
@@ -344,8 +338,14 @@ class UnknownDetector:
             cv2.CHAIN_APPROX_SIMPLE,
         )
         image_area = anomaly_mask.shape[0] * anomaly_mask.shape[1]
-        min_area = max(1, int(image_area * self._min_area_ratio),)
-        max_area = max(min_area, int(image_area * self._max_area_ratio),)
+        min_area = max(
+            1,
+            int(image_area * self._min_area_ratio),
+        )
+        max_area = max(
+            min_area,
+            int(image_area * self._max_area_ratio),
+        )
         unknown_regions = []
         for region_index, contour in enumerate(contours):
             area = int(cv2.contourArea(contour))
@@ -379,13 +379,9 @@ class UnknownDetector:
                     ),
                     score=score,
                     distance=None,
-                    object_id=(
-                        f"unknown-{region_index:03d}"
-                    ),
+                    object_id=(f"unknown-{region_index:03d}"),
                     area=area,
-                    mask_rle=self._encode_mask_rle(
-                        component_mask
-                    ),
+                    mask_rle=self._encode_mask_rle(component_mask),
                 )
             )
         return unknown_regions
@@ -395,9 +391,7 @@ class UnknownDetector:
         self,
         frame: np.ndarray,
         road_mask: np.ndarray,
-        known_objects: Optional[
-            List[DetectedObject]
-        ] = None,
+        known_objects: Optional[List[DetectedObject]] = None,
     ) -> UnknownDetectionResult:
         start_time = perf_counter()
         input_error = self._validate_input(
@@ -441,28 +435,20 @@ class UnknownDetector:
                 candidate_mask,
                 road_roi,
             )
-            anomaly_mask = self._clean_candidate_mask(
-                anomaly_mask
-            )
-            known_exclusion_mask = (
-                self._build_known_exclusion_mask(
-                    frame.shape[:2],
-                    known_objects or [],
-                )
+            anomaly_mask = self._clean_candidate_mask(anomaly_mask)
+            known_exclusion_mask = self._build_known_exclusion_mask(
+                frame.shape[:2],
+                known_objects or [],
             )
             anomaly_mask = cv2.bitwise_and(
                 anomaly_mask,
-                cv2.bitwise_not(
-                    known_exclusion_mask
-                ),
+                cv2.bitwise_not(known_exclusion_mask),
             )
             regions = self._mask_to_unknown_regions(
                 anomaly_mask,
                 score_map,
             )
-            inference_time_ms = (
-                perf_counter() - start_time
-            ) * 1000.0
+            inference_time_ms = (perf_counter() - start_time) * 1000.0
             return UnknownDetectionResult(
                 score_map=score_map,
                 anomaly_mask=anomaly_mask,
@@ -473,9 +459,7 @@ class UnknownDetector:
                 model_version=self._get_model_version(),
             )
         except Exception as error:
-            inference_time_ms = (
-                perf_counter() - start_time
-            ) * 1000.0
+            inference_time_ms = (perf_counter() - start_time) * 1000.0
             return self._build_error_result(
                 frame,
                 INFERENCE_ERROR,

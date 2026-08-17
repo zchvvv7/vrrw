@@ -112,9 +112,7 @@ def test_predict_builds_unknown_region() -> None:
         100,
         200,
     ]
-    assert sum(
-        result.regions[0].mask_rle["counts"]
-    ) == 100 * 200
+    assert sum(result.regions[0].mask_rle["counts"]) == 100 * 200
 
 
 # 测试已知目标区域会从未知异常结果中排除

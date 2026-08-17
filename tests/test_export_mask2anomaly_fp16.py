@@ -77,6 +77,4 @@ def test_export_rejects_source_overwrite(
     except ValueError as error:
         assert "cannot overwrite" in str(error)
     else:
-        raise AssertionError(
-            "Source overwrite must raise ValueError."
-        )
+        raise AssertionError("Source overwrite must raise ValueError.")

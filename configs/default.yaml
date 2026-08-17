@@ -1,10 +1,6 @@
 input:
   source_type: "video"
   video_path: "data/raw/demo.mp4"
-  camera_id: 0
-  width: 1280
-  height: 720
-  fps: 30
   frame_skip: 1
 
 output:
@@ -47,7 +43,6 @@ corridor_predictor:
   method: "road_mask_geometry"
   model_version: "v1.0"
   min_road_width: 50
-  max_centerline_points: 200
   temporal_window: 5
   confidence_decay: 0.9
   boundary_sample_step: 2
@@ -71,7 +66,6 @@ risk_evaluator:
   notice_distance_m: 30.0
   warning_distance_m: 15.0
   danger_distance_m: 6.0
-  notice_ttc_s: 5.0
   warning_ttc_s: 3.0
   danger_ttc_s: 1.5
   track_iou_threshold: 0.30

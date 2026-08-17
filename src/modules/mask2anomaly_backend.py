@@ -46,11 +46,9 @@ class Mask2AnomalyBackend:
             "num_inlier_classes",
             19,
         )
-        self._known_mask_threshold = (
-            post_processing_config.get(
-                "known_mask_threshold",
-                0.5,
-            )
+        self._known_mask_threshold = post_processing_config.get(
+            "known_mask_threshold",
+            0.5,
         )
         self._enable_flip_tta = inference_config.get(
             "enable_flip_tta",
@@ -171,33 +169,36 @@ class Mask2AnomalyBackend:
             torch.cuda.synchronize(torch.device(self._device))
 
     # 将语义分割输出转换为异常分数图
-    def _create_anomaly_score(self, sem_seg: torch.Tensor,) -> np.ndarray:
+    def _create_anomaly_score(
+        self,
+        sem_seg: torch.Tensor,
+    ) -> np.ndarray:
         if sem_seg.ndim != 3:
-            raise RuntimeError("Mask2Anomaly sem_seg must have three dimensions.")
+            raise RuntimeError(
+                "Mask2Anomaly sem_seg must have three dimensions."
+            )
         if sem_seg.shape[0] < self._num_inlier_classes:
             raise RuntimeError(
                 "Mask2Anomaly sem_seg has fewer channels than "
                 "num_inlier_classes."
             )
-        inlier_scores = sem_seg[:self._num_inlier_classes]
+        inlier_scores = sem_seg[: self._num_inlier_classes]
         anomaly_score = 1.0 - inlier_scores.amax(dim=0)
-        extra_masks = sem_seg[self._num_inlier_classes:]
+        extra_masks = sem_seg[self._num_inlier_classes :]
         if extra_masks.shape[0] > 0:
             known_mask = extra_masks.amax(dim=0)
-            keep_mask = (known_mask < self._known_mask_threshold)
+            keep_mask = known_mask < self._known_mask_threshold
             anomaly_score = anomaly_score * keep_mask
         anomaly_score = (
-            anomaly_score
-            .clamp(0.0, 1.0)
-            .detach()
-            .float()
-            .cpu()
-            .numpy()
+            anomaly_score.clamp(0.0, 1.0).detach().float().cpu().numpy()
         )
         return np.ascontiguousarray(anomaly_score)
 
     # 对单张图像执行一次Mask2Anomaly推理
-    def _predict_single(self, frame: np.ndarray,) -> np.ndarray:
+    def _predict_single(
+        self,
+        frame: np.ndarray,
+    ) -> np.ndarray:
         contiguous_frame = np.ascontiguousarray(frame)
         outputs = self._predictor(contiguous_frame)
         if "sem_seg" not in outputs:
@@ -206,7 +207,10 @@ class Mask2AnomalyBackend:
 
     # 执行异常推理并返回异常分数图和推理耗时
     @torch.inference_mode()
-    def predict(self, frame: np.ndarray,) -> Tuple[np.ndarray, float]:
+    def predict(
+        self,
+        frame: np.ndarray,
+    ) -> Tuple[np.ndarray, float]:
         self._validate_frame(frame)
         self._synchronize_device()
         start_time = perf_counter()
@@ -216,7 +220,10 @@ class Mask2AnomalyBackend:
             flipped_score = self._predict_single(flipped_frame)
             flipped_score = np.fliplr(flipped_score)
             anomaly_score = (anomaly_score + flipped_score) / 2.0
-            anomaly_score = np.ascontiguousarray(anomaly_score, dtype=np.float32,)
+            anomaly_score = np.ascontiguousarray(
+                anomaly_score,
+                dtype=np.float32,
+            )
         self._synchronize_device()
         inference_time_ms = (perf_counter() - start_time) * 1000.0
         return anomaly_score, inference_time_ms

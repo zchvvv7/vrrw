@@ -216,7 +216,6 @@ risk_evaluator:
   notice_distance_m: 30.0
   warning_distance_m: 15.0
   danger_distance_m: 6.0
-  notice_ttc_s: 5.0
   warning_ttc_s: 3.0
   danger_ttc_s: 1.5
   track_iou_threshold: 0.30
@@ -238,12 +237,10 @@ risk_evaluator:
 | footprint / lateral | 控制接地点与有效占用区域 |
 | min_known / max_known | 过滤已知检测误报 |
 | distance thresholds | 控制不同距离对应的风险等级 |
-| TTC thresholds | 控制快速接近目标的风险升级 |
+| TTC thresholds | 控制快速接近目标升至 warning 或 danger |
 | track / history | 控制跨帧关联和稳定性 |
 | min_ttc_* | 控制 TTC 是否可信 |
 | min_corridor_confidence | 拒绝低置信度走廊 |
-
-notice_ttc_s 当前会被读取并参与配置大小关系校验，但尚未在 _classify_obstacle 的分级规则中实际使用。调整这个参数不会改变现有风险输出；如果未来增加 TTC notice 规则，应同时补充测试和本文档。
 
 ### 1.4 运行结果与可视化
 
@@ -306,7 +303,6 @@ risk_level 表示道路画面中的碰撞风险；system_status 表示感知链�
 - 自车走廊误差会传递到空间冲突判断。
 - 仅根据视频帧编号和 FPS 建立时间轴，没有车辆 CAN 数据。
 - near 目标的极近距离只升到 warning，属于当前保守规则设计。
-- notice_ttc_s 当前没有参与实际分级。
 
 ### 1.6 使用与排查
 
@@ -352,8 +348,7 @@ risk_evaluator.reset()
 3. 对距离序列使用鲁棒滤波或不确定性区间。
 4. 将自车速度、制动距离和道路曲率加入动态阈值。
 5. 为走廊置信度和距离置信度建立联合降级策略。
-6. 明确定义并实现 notice_ttc_s 的业务规则，或删除无效配置。
-7. 分开评估误报、漏报、风险提前量和等级稳定性。
+6. 分开评估误报、漏报、风险提前量和等级稳定性。
 
 ---
 

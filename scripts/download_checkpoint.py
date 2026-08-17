@@ -8,46 +8,55 @@
 
 import argparse
 import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 CHECKPOINT_URLS = {
     "segformer_mit-b2_cityscapes": {
         "hub_id": "smp-hub/segformer-b2-1024x1024-city-160k",
         "filename": "segformer_mit-b2_cityscapes.pth",
         "num_classes": 19,
-        "description": "SegFormer mit-b2 pretrained on Cityscapes (19 classes)",
+        "description": (
+            "SegFormer mit-b2 pretrained on Cityscapes (19 classes)"
+        ),
     },
     "segformer_mit-b0_cityscapes": {
         "hub_id": "smp-hub/segformer-b0-1024x1024-city-160k",
         "filename": "segformer_mit-b0_cityscapes.pth",
         "num_classes": 19,
-        "description": "SegFormer mit-b0 pretrained on Cityscapes (19 classes)",
+        "description": (
+            "SegFormer mit-b0 pretrained on Cityscapes (19 classes)"
+        ),
     },
     "segformer_mit-b1_cityscapes": {
         "hub_id": "smp-hub/segformer-b1-1024x1024-city-160k",
         "filename": "segformer_mit-b1_cityscapes.pth",
         "num_classes": 19,
-        "description": "SegFormer mit-b1 pretrained on Cityscapes (19 classes)",
+        "description": (
+            "SegFormer mit-b1 pretrained on Cityscapes (19 classes)"
+        ),
     },
     "segformer_mit-b3_cityscapes": {
         "hub_id": "smp-hub/segformer-b3-1024x1024-city-160k",
         "filename": "segformer_mit-b3_cityscapes.pth",
         "num_classes": 19,
-        "description": "SegFormer mit-b3 pretrained on Cityscapes (19 classes)",
+        "description": (
+            "SegFormer mit-b3 pretrained on Cityscapes (19 classes)"
+        ),
     },
     "segformer_mit-b4_cityscapes": {
         "hub_id": "smp-hub/segformer-b4-1024x1024-city-160k",
         "filename": "segformer_mit-b4_cityscapes.pth",
         "num_classes": 19,
-        "description": "SegFormer mit-b4 pretrained on Cityscapes (19 classes)",
+        "description": (
+            "SegFormer mit-b4 pretrained on Cityscapes (19 classes)"
+        ),
     },
     "segformer_mit-b5_cityscapes": {
         "hub_id": "smp-hub/segformer-b5-1024x1024-city-160k",
         "filename": "segformer_mit-b5_cityscapes.pth",
         "num_classes": 19,
-        "description": "SegFormer mit-b5 pretrained on Cityscapes (19 classes)",
+        "description": (
+            "SegFormer mit-b5 pretrained on Cityscapes (19 classes)"
+        ),
     },
 }
 
@@ -87,12 +96,16 @@ def _download_with_smp_from_pretrained(config: dict, save_dir: str) -> str:
         print(f"Checkpoint downloaded successfully to {save_path}")
         print(f"Model architecture: {type(model).__name__}")
         print(f"Number of classes: {config['num_classes']}")
-        print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
+        print(
+            f"Total parameters: {sum(p.numel() for p in model.parameters()):,}"
+        )
 
         return save_path
-    except Exception as e:
-        print(f"Failed to download with smp.from_pretrained: {str(e)}")
-        print("Trying alternative download method using Hugging Face Hub API...")
+    except Exception as error:
+        print(f"Failed to download with smp.from_pretrained: {error}")
+        print(
+            "Trying alternative download method using Hugging Face Hub API..."
+        )
         return _download_with_huggingface_hub(config, save_dir)
 
 
@@ -118,28 +131,31 @@ def _download_with_huggingface_hub(config: dict, save_dir: str) -> str:
         print(f"Total keys in checkpoint: {len(checkpoint.keys())}")
 
         return save_path
-    except Exception as e:
-        print(f"Failed to download with Hugging Face Hub: {str(e)}")
+    except Exception as error:
+        print(f"Failed to download with Hugging Face Hub: {error}")
         raise RuntimeError(
-            "Failed to download checkpoint. Please try downloading manually from:\n"
+            "Failed to download checkpoint. "
+            "Please try downloading manually from:\n"
             f"https://huggingface.co/{config['hub_id']}"
-        )
+        ) from error
 
 
 # 命令行入口函数
-def main():
-    parser = argparse.ArgumentParser(description="Download segmentation model checkpoint")
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Download segmentation model checkpoint"
+    )
     parser.add_argument(
         "--model",
         type=str,
         default="segformer_mit-b2_cityscapes",
-        help=f"Model name. Available: {list(CHECKPOINT_URLS.keys())}"
+        help=f"Model name. Available: {list(CHECKPOINT_URLS.keys())}",
     )
     parser.add_argument(
         "--save_dir",
         type=str,
         default="checkpoints",
-        help="Directory to save the checkpoint"
+        help="Directory to save the checkpoint",
     )
     args = parser.parse_args()
     download_checkpoint(args.model, args.save_dir)

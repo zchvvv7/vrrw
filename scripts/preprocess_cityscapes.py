@@ -9,8 +9,8 @@
 import argparse
 import json
 import os
-import shutil
-from typing import Dict, List, Tuple
+from typing import Dict
+from typing import Tuple
 
 import cv2
 import numpy as np
@@ -76,17 +76,18 @@ def parse_cityscapes_polygon(json_path: str) -> Tuple[np.ndarray, int, int]:
 
     for obj in data["objects"]:
         if obj["label"] == "road":
-            polygon = np.array(
-                obj["polygon"], dtype=np.int32
-            ).reshape((-1, 1, 2))
+            polygon = np.array(obj["polygon"], dtype=np.int32).reshape(
+                (-1, 1, 2)
+            )
             cv2.fillPoly(mask, [polygon], 255)
 
     return mask, height, width
 
 
 # 处理Cityscapes数据集中的一个划分（train/val/test）
-def process_cityscapes_split(cityscapes_dir: str, split: str,
-                             output_dir: str) -> int:
+def process_cityscapes_split(
+    cityscapes_dir: str, split: str, output_dir: str
+) -> int:
     image_dir = os.path.join(cityscapes_dir, "leftImg8bit", split)
     gt_dir = os.path.join(cityscapes_dir, "gtFine", split)
     output_image_dir = os.path.join(output_dir, "images")
@@ -112,18 +113,30 @@ def process_cityscapes_split(cityscapes_dir: str, split: str,
             continue
 
         if not os.path.isdir(city_gt_dir):
-            print(f"  Warning: GT directory not found for city '{city}', skipping...")
+            print(
+                "  Warning: GT directory not found for city "
+                f"'{city}', skipping..."
+            )
             skipped_count += len(os.listdir(city_image_dir))
             continue
 
-        img_files = sorted([f for f in os.listdir(city_image_dir)
-                           if f.endswith("_leftImg8bit.png")])
+        img_files = sorted(
+            [
+                f
+                for f in os.listdir(city_image_dir)
+                if f.endswith("_leftImg8bit.png")
+            ]
+        )
 
         for img_file in img_files:
             prefix = img_file.replace("_leftImg8bit.png", "")
             img_path = os.path.join(city_image_dir, img_file)
-            label_id_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_labelIds.png")
-            polygon_path = os.path.join(city_gt_dir, f"{prefix}_gtFine_polygons.json")
+            label_id_path = os.path.join(
+                city_gt_dir, f"{prefix}_gtFine_labelIds.png"
+            )
+            polygon_path = os.path.join(
+                city_gt_dir, f"{prefix}_gtFine_polygons.json"
+            )
 
             try:
                 img = cv2.imread(img_path)
@@ -137,27 +150,36 @@ def process_cityscapes_split(cityscapes_dir: str, split: str,
                     if label_ids is not None:
                         mask = convert_label_ids_to_road_mask(label_ids)
                 elif os.path.exists(polygon_path):
-                    mask, h, w = parse_cityscapes_polygon(polygon_path)
+                    mask, _, _ = parse_cityscapes_polygon(polygon_path)
                     if mask.shape != img.shape[:2]:
                         mask = cv2.resize(
-                            mask, (img.shape[1], img.shape[0]),
-                            interpolation=cv2.INTER_NEAREST
+                            mask,
+                            (img.shape[1], img.shape[0]),
+                            interpolation=cv2.INTER_NEAREST,
                         )
 
                 if mask is None:
                     skipped_count += 1
                     continue
 
-                output_img_path = os.path.join(output_image_dir, f"{prefix}.png")
-                output_mask_path = os.path.join(output_mask_dir, f"{prefix}.png")
+                output_img_path = os.path.join(
+                    output_image_dir, f"{prefix}.png"
+                )
+                output_mask_path = os.path.join(
+                    output_mask_dir, f"{prefix}.png"
+                )
 
                 success = cv2.imwrite(output_img_path, img)
                 if not success:
-                    raise RuntimeError(f"Failed to write image: {output_img_path}")
+                    raise RuntimeError(
+                        f"Failed to write image: {output_img_path}"
+                    )
 
                 success = cv2.imwrite(output_mask_path, mask)
                 if not success:
-                    raise RuntimeError(f"Failed to write mask: {output_mask_path}")
+                    raise RuntimeError(
+                        f"Failed to write mask: {output_mask_path}"
+                    )
 
                 processed_count += 1
 
@@ -166,16 +188,22 @@ def process_cityscapes_split(cityscapes_dir: str, split: str,
                 print(f"  Error processing {prefix}: {str(e)}")
 
         progress = ((city_idx + 1) / total_cities) * 100
-        print(f"  Progress: {city_idx + 1}/{total_cities} cities ({progress:.1f}%) - "
-              f"Processed: {processed_count}, Skipped: {skipped_count}, Errors: {error_count}",
-              end="\r")
+        print(
+            f"  Progress: {city_idx + 1}/{total_cities} cities "
+            f"({progress:.1f}%) - Processed: {processed_count}, "
+            f"Skipped: {skipped_count}, Errors: {error_count}",
+            end="\r",
+        )
 
-    print(f"\n  Final: Processed {processed_count}, Skipped {skipped_count}, Errors {error_count}")
+    print(
+        f"\n  Final: Processed {processed_count}, "
+        f"Skipped {skipped_count}, Errors {error_count}"
+    )
     return processed_count
 
 
 # 命令行入口函数
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert Cityscapes dataset to images/masks format"
     )
@@ -183,20 +211,23 @@ def main():
         "--cityscapes_dir",
         type=str,
         required=True,
-        help="Path to Cityscapes root directory"
+        help="Path to Cityscapes root directory",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         default="data/processed/cityscapes",
-        help="Output directory for processed dataset"
+        help="Output directory for processed dataset",
     )
     parser.add_argument(
         "--splits",
         type=str,
         nargs="+",
         default=["train", "val"],
-        help="Splits to process (train, val, test). Note: test split typically has no labels."
+        help=(
+            "Splits to process (train, val, test). "
+            "The test split typically has no labels."
+        ),
     )
     args = parser.parse_args()
 
@@ -207,18 +238,23 @@ def main():
     for split in args.splits:
         print(f"\nProcessing {split} split...")
         split_output_dir = os.path.join(args.output_dir, split)
-        count = process_cityscapes_split(args.cityscapes_dir, split, split_output_dir)
-        print(f"Processed {count} samples for {split} split -> {split_output_dir}")
+        count = process_cityscapes_split(
+            args.cityscapes_dir, split, split_output_dir
+        )
+        print(
+            f"Processed {count} samples for {split} split -> "
+            f"{split_output_dir}"
+        )
         total_processed += count
 
-    print(f"\nPreprocessing completed!")
+    print("\nPreprocessing completed!")
     print(f"Total samples processed: {total_processed}")
-    print(f"Dataset structure:")
+    print("Dataset structure:")
     print(f"  {args.output_dir}/")
     for split in args.splits:
         print(f"    {split}/")
-        print(f"      images/  (RGB images)")
-        print(f"      masks/   (binary road masks)")
+        print("      images/  (RGB images)")
+        print("      masks/   (binary road masks)")
 
 
 if __name__ == "__main__":

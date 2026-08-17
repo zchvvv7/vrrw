@@ -3,7 +3,7 @@
 用途: 项目总流程
 作者: 张楚涵
 创建日期: 2026-07-16
-最后修改日期: 2026-08-04
+最后修改日期: 2026-08-17
 """
 
 import json
@@ -11,8 +11,6 @@ import logging
 import os
 import time
 from typing import Optional
-from typing import Tuple
-from typing import Union
 
 import cv2
 import yaml
@@ -20,7 +18,6 @@ from huggingface_hub.utils import disable_progress_bars
 from huggingface_hub.utils import logging as hub_logging
 from transformers.utils import logging as transformers_logging
 
-from src.data.camera_reader import CameraReader
 from src.data.video_reader import VideoReader
 from src.interface.schemas import CorridorPredictionResult
 from src.interface.schemas import DistanceEstimationResult
@@ -38,12 +35,14 @@ from src.modules.road_segmenter import RoadSegmenter
 from src.modules.unknown_detector import UnknownDetector
 from src.utils.live_visualizer import LiveVisualizer
 from src.utils.result_visualizer import draw_result
+from src.utils.result_visualizer import get_output_size
 
 
 # 读取配置文件
 def load_config(config_path: str) -> dict:
     with open(config_path, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
+
 
 # 关闭第三方库在终端输出的提示和进度条
 def configure_external_output() -> None:
@@ -57,6 +56,7 @@ def configure_external_output() -> None:
     logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
     logging.getLogger("transformers").setLevel(logging.ERROR)
     logging.getLogger("ultralytics").setLevel(logging.ERROR)
+
 
 # 初始化运行日志
 def setup_logger(log_path: str) -> logging.Logger:
@@ -73,9 +73,7 @@ def setup_logger(log_path: str) -> logging.Logger:
         encoding="utf-8",
     )
     file_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     logger.propagate = False
@@ -86,60 +84,21 @@ def setup_logger(log_path: str) -> logging.Logger:
     source_logger.propagate = False
     return logger
 
+
 # 创建输入源读取器
 def build_reader(
     config: dict,
-) -> Union[CameraReader, VideoReader]:
+) -> VideoReader:
     source_type = config["input"]["source_type"]
-    if source_type == "camera":
-        return CameraReader(
-            camera_id=config["input"]["camera_id"],
-            width=config["input"]["width"],
-            height=config["input"]["height"],
-            fps=config["input"]["fps"],
+    if source_type != "video":
+        raise ValueError(
+            "Only video input is supported. "
+            f"Received source_type: {source_type}"
         )
-    if source_type == "video":
-        return VideoReader(
-            video_path=config["input"]["video_path"],
-            frame_skip=config["input"]["frame_skip"],
-        )
-    raise ValueError(
-        f"Unsupported source_type: {source_type}"
+    return VideoReader(
+        video_path=config["input"]["video_path"],
+        frame_skip=config["input"]["frame_skip"],
     )
-
-# 根据模块状态生成当前帧风险显示信息
-def build_frame_status(
-    road_result: RoadSegmentResult,
-    known_result: KnownDetectionResult,
-    unknown_result: Optional[
-        UnknownDetectionResult
-    ] = None,
-) -> Tuple[str, str]:
-    if road_result.is_unavailable:
-        return "unavailable", road_result.error_message
-    if not known_result.is_successful:
-        return "unavailable", known_result.error_message
-    if (
-        unknown_result is not None
-        and not unknown_result.is_successful
-    ):
-        return "unavailable", unknown_result.error_message
-    if road_result.is_degraded:
-        return "degraded", road_result.error_message
-    if (
-        known_result.objects
-        and unknown_result is not None
-        and unknown_result.regions
-    ):
-        return "notice", "known_and_unknown_obstacle_detected"
-    if known_result.objects:
-        return "notice", "known_obstacle_detected"
-    if (
-        unknown_result is not None
-        and unknown_result.regions
-    ):
-        return "notice", "unknown_obstacle_detected"
-    return "safe", "no_obstacle"
 
 
 # 汇总各感知模块状态供风险评估使用
@@ -168,6 +127,7 @@ def build_risk_system_status(
         return SystemStatus.DEGRADED
     return SystemStatus.NORMAL
 
+
 # 生成单帧JSON记录
 def build_frame_record(
     frame_id: int,
@@ -176,15 +136,9 @@ def build_frame_record(
     unknown_result: Optional[UnknownDetectionResult],
     risk_level: str,
     major_reason: str,
-    distance_result: Optional[
-        DistanceEstimationResult
-    ] = None,
-    corridor_result: Optional[
-        CorridorPredictionResult
-    ] = None,
-    risk_result: Optional[
-        RiskEvaluationResult
-    ] = None,
+    distance_result: Optional[DistanceEstimationResult] = None,
+    corridor_result: Optional[CorridorPredictionResult] = None,
+    risk_result: Optional[RiskEvaluationResult] = None,
 ) -> dict:
     return {
         "frame_id": frame_id,
@@ -194,15 +148,11 @@ def build_frame_record(
             "road_pixel_ratio": road_result.road_pixel_ratio,
             "error_code": road_result.error_code,
             "error_message": road_result.error_message,
-            "inference_time_ms": (
-                road_result.inference_time_ms
-            ),
+            "inference_time_ms": road_result.inference_time_ms,
         },
         "known_detection": {
             "model_version": known_result.model_version,
-            "inference_time_ms": (
-                known_result.inference_time_ms
-            ),
+            "inference_time_ms": known_result.inference_time_ms,
             "error_code": known_result.error_code,
             "error_message": known_result.error_message,
             "object_count": len(known_result.objects),
@@ -211,9 +161,7 @@ def build_frame_record(
             {
                 "class_name": detected_object.class_name,
                 "bbox": list(detected_object.bbox),
-                "confidence": (
-                    detected_object.confidence
-                ),
+                "confidence": detected_object.confidence,
                 "distance": detected_object.distance,
             }
             for detected_object in known_result.objects
@@ -221,19 +169,11 @@ def build_frame_record(
         "unknown_detection": (
             {
                 "enabled": True,
-                "model_version": (
-                    unknown_result.model_version
-                ),
-                "inference_time_ms": (
-                    unknown_result.inference_time_ms
-                ),
+                "model_version": unknown_result.model_version,
+                "inference_time_ms": unknown_result.inference_time_ms,
                 "error_code": unknown_result.error_code,
-                "error_message": (
-                    unknown_result.error_message
-                ),
-                "region_count": len(
-                    unknown_result.regions
-                ),
+                "error_message": unknown_result.error_message,
+                "region_count": len(unknown_result.regions),
             }
             if unknown_result is not None
             else {
@@ -241,9 +181,7 @@ def build_frame_record(
                 "model_version": "disabled",
                 "inference_time_ms": 0.0,
                 "error_code": 0,
-                "error_message": (
-                    "Unknown detection is disabled."
-                ),
+                "error_message": "Unknown detection is disabled.",
                 "region_count": 0,
             }
         ),
@@ -266,19 +204,11 @@ def build_frame_record(
             {
                 "enabled": distance_result.is_enabled,
                 "method": distance_result.method,
-                "model_version": (
-                    distance_result.model_version
-                ),
-                "inference_time_ms": (
-                    distance_result.inference_time_ms
-                ),
+                "model_version": distance_result.model_version,
+                "inference_time_ms": distance_result.inference_time_ms,
                 "error_code": distance_result.error_code,
-                "error_message": (
-                    distance_result.error_message
-                ),
-                "object_count": len(
-                    distance_result.known_objects
-                ),
+                "error_message": distance_result.error_message,
+                "object_count": len(distance_result.known_objects),
             }
             if distance_result is not None
             else {
@@ -287,37 +217,23 @@ def build_frame_record(
                 "model_version": "unavailable",
                 "inference_time_ms": 0.0,
                 "error_code": 0,
-                "error_message": (
-                    "Distance estimation result is absent."
-                ),
-                "object_count": len(
-                    known_result.objects
-                ),
+                "error_message": "Distance estimation result is absent.",
+                "object_count": len(known_result.objects),
             }
         ),
         "corridor_prediction": (
             {
                 "enabled": corridor_result.is_enabled,
                 "method": corridor_result.method,
-                "model_version": (
-                    corridor_result.model_version
-                ),
+                "model_version": corridor_result.model_version,
                 "confidence": corridor_result.confidence,
-                "polygon": [
-                    list(point)
-                    for point in corridor_result.polygon
-                ],
+                "polygon": [list(point) for point in corridor_result.polygon],
                 "centerline": [
-                    list(point)
-                    for point in corridor_result.centerline
+                    list(point) for point in corridor_result.centerline
                 ],
-                "inference_time_ms": (
-                    corridor_result.inference_time_ms
-                ),
+                "inference_time_ms": corridor_result.inference_time_ms,
                 "error_code": corridor_result.error_code,
-                "error_message": (
-                    corridor_result.error_message
-                ),
+                "error_message": corridor_result.error_message,
             }
             if corridor_result is not None
             else {
@@ -329,34 +245,22 @@ def build_frame_record(
                 "centerline": [],
                 "inference_time_ms": 0.0,
                 "error_code": 0,
-                "error_message": (
-                    "Corridor prediction result is absent."
-                ),
+                "error_message": "Corridor prediction result is absent.",
             }
         ),
         "risk": (
             {
                 "enabled": risk_result.is_enabled,
                 "is_valid": risk_result.is_valid,
-                "system_status": (
-                    risk_result.system_status
-                ),
-                "model_version": (
-                    risk_result.model_version
-                ),
+                "system_status": risk_result.system_status,
+                "model_version": risk_result.model_version,
                 "risk_level": risk_result.risk_level,
                 "major_reason": risk_result.major_reason,
-                "corridor_overlap": (
-                    risk_result.corridor_overlap
-                ),
+                "corridor_overlap": risk_result.corridor_overlap,
                 "ttc": risk_result.ttc,
-                "inference_time_ms": (
-                    risk_result.inference_time_ms
-                ),
+                "inference_time_ms": risk_result.inference_time_ms,
                 "error_code": risk_result.error_code,
-                "error_message": (
-                    risk_result.error_message
-                ),
+                "error_message": risk_result.error_message,
                 "obstacles": [
                     {
                         "object_id": item.object_id,
@@ -364,18 +268,12 @@ def build_frame_record(
                         "class_name": item.class_name,
                         "bbox": list(item.bbox),
                         "distance": item.distance,
-                        "corridor_overlap": (
-                            item.corridor_overlap
-                        ),
-                        "spatial_relation": (
-                            item.spatial_relation
-                        ),
+                        "corridor_overlap": item.corridor_overlap,
+                        "spatial_relation": item.spatial_relation,
                         "ttc": item.ttc,
                         "risk_level": item.risk_level,
                         "major_reason": item.major_reason,
-                        "stable_frames": (
-                            item.stable_frames
-                        ),
+                        "stable_frames": item.stable_frames,
                     }
                     for item in risk_result.obstacle_risks
                 ],
@@ -392,13 +290,12 @@ def build_frame_record(
                 "ttc": None,
                 "inference_time_ms": 0.0,
                 "error_code": 0,
-                "error_message": (
-                    "Risk evaluation result is absent."
-                ),
+                "error_message": "Risk evaluation result is absent.",
                 "obstacles": [],
             }
         ),
     }
+
 
 # 保存JSON结果
 def save_result_json(
@@ -429,14 +326,13 @@ def save_result_json(
             indent=2,
         )
 
+
 # 运行道路风险处理流程
 def run_pipeline(config_path: str) -> None:
     configure_external_output()
     config = load_config(config_path)
     source_type = config["input"]["source_type"]
-    logger = setup_logger(
-        config["output"]["log_path"]
-    )
+    logger = setup_logger(config["output"]["log_path"])
     logger.info("Pipeline started.")
     logger.info("Source type: %s", source_type)
     logger.info(
@@ -452,21 +348,15 @@ def run_pipeline(config_path: str) -> None:
         config["output"]["json_path"],
     )
     os.makedirs(
-        os.path.dirname(
-            config["output"]["video_path"]
-        ),
+        os.path.dirname(config["output"]["video_path"]),
         exist_ok=True,
     )
     os.makedirs(
-        os.path.dirname(
-            config["output"]["json_path"]
-        ),
+        os.path.dirname(config["output"]["json_path"]),
         exist_ok=True,
     )
     road_segmenter = RoadSegmenter(
-        config_path=(
-            config["road_segmenter"]["config_path"]
-        ),
+        config_path=config["road_segmenter"]["config_path"],
     )
     known_detector = KnownDetector(
         config=config["known_detector"],
@@ -499,21 +389,30 @@ def run_pipeline(config_path: str) -> None:
         width = source_info["width"]
         height = source_info["height"]
         total_frames = source_info["total_frames"]
+        output_width, output_height = get_output_size(
+            frame_width=width,
+            frame_height=height,
+        )
         writer = cv2.VideoWriter(
             config["output"]["video_path"],
             cv2.VideoWriter_fourcc(*"mp4v"),
             fps,
-            (width, height),
+            (output_width, output_height),
         )
         if not writer.isOpened():
-            logger.error(
-                "Failed to create output video."
-            )
+            logger.error("Failed to create output video.")
             raise RuntimeError(
-                "Failed to write the output video. "
-                "Please check the path."
+                "Failed to write the output video. Please check the path."
             )
-        if source_type == "camera":
+        if bool(
+            config.get(
+                "system",
+                {},
+            ).get(
+                "show_window",
+                False,
+            )
+        ):
             live_visualizer = LiveVisualizer(
                 window_name="Road Risk Warning",
                 exit_key="q",
@@ -529,9 +428,7 @@ def run_pipeline(config_path: str) -> None:
                 frame_id=frame_id,
                 known_objects=known_result.objects,
             )
-            known_result.objects = (
-                distance_result.known_objects
-            )
+            known_result.objects = distance_result.known_objects
             unknown_result = unknown_detector.predict(
                 frame=frame,
                 road_mask=road_result.mask,
@@ -598,24 +495,12 @@ def run_pipeline(config_path: str) -> None:
                 unknown_regions=unknown_result.regions,
                 risk_level=risk_level,
                 major_reason=major_reason,
-                anomaly_mask=(
-                    unknown_result.anomaly_mask
-                ),
-                corridor_mask=(
-                    corridor_result.corridor_mask
-                ),
-                corridor_polygon=(
-                    corridor_result.polygon
-                ),
-                corridor_centerline=(
-                    corridor_result.centerline
-                ),
-                obstacle_risks=(
-                    risk_result.obstacle_risks
-                ),
-                risk_system_status=(
-                    risk_result.system_status
-                ),
+                anomaly_mask=unknown_result.anomaly_mask,
+                corridor_mask=corridor_result.corridor_mask,
+                corridor_polygon=corridor_result.polygon,
+                corridor_centerline=corridor_result.centerline,
+                obstacle_risks=risk_result.obstacle_risks,
+                risk_system_status=risk_result.system_status,
                 risk_is_valid=risk_result.is_valid,
             )
             output_frame = draw_result(frame, result)
@@ -671,6 +556,7 @@ def run_pipeline(config_path: str) -> None:
             "Elapsed time seconds: %.2f",
             elapsed_time,
         )
+
 
 if __name__ == "__main__":
     run_pipeline("configs/default.yaml")

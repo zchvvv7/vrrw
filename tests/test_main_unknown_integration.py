@@ -19,7 +19,6 @@ from src.interface.schemas import SystemStatus
 from src.interface.schemas import UnknownDetectionResult
 from src.interface.schemas import UnknownRegion
 from src.main import build_frame_record
-from src.main import build_frame_status
 from src.main import build_risk_system_status
 
 
@@ -94,39 +93,6 @@ def build_unknown_result() -> UnknownDetectionResult:
     )
 
 
-# 测试未知障碍物会触发notice状态
-def test_unknown_region_sets_notice_status() -> None:
-    road_result = build_road_result()
-    known_result = build_empty_known_result()
-    unknown_result = build_unknown_result()
-
-    risk_level, major_reason = build_frame_status(
-        road_result,
-        known_result,
-        unknown_result,
-    )
-
-    assert risk_level == "notice"
-    assert major_reason == "unknown_obstacle_detected"
-
-
-# 测试已知障碍物会触发notice状态
-def test_known_object_sets_notice_status() -> None:
-    road_result = build_road_result()
-    known_result = build_known_result()
-    unknown_result = build_unknown_result()
-    unknown_result.regions = []
-
-    risk_level, major_reason = build_frame_status(
-        road_result,
-        known_result,
-        unknown_result,
-    )
-
-    assert risk_level == "notice"
-    assert major_reason == "known_obstacle_detected"
-
-
 # 测试未知障碍物结果可以写入单帧记录
 def test_unknown_result_is_written_to_frame_record() -> None:
     road_result = build_road_result()
@@ -165,31 +131,6 @@ def test_known_result_is_written_to_frame_record() -> None:
     assert frame_record["known_detection"]["object_count"] == 1
     assert frame_record["known_objects"][0]["class_name"] == "cone"
     assert frame_record["known_objects"][0]["confidence"] == 0.85
-
-
-# 测试关闭未知检测时已知检测流程仍可正常工作
-def test_disabled_unknown_detection_keeps_known_flow() -> None:
-    road_result = build_road_result()
-    known_result = build_known_result()
-
-    risk_level, major_reason = build_frame_status(
-        road_result,
-        known_result,
-        unknown_result=None,
-    )
-    frame_record = build_frame_record(
-        frame_id=1,
-        road_result=road_result,
-        known_result=known_result,
-        unknown_result=None,
-        risk_level=risk_level,
-        major_reason=major_reason,
-    )
-
-    assert risk_level == "notice"
-    assert major_reason == "known_obstacle_detected"
-    assert frame_record["unknown_detection"]["enabled"] is False
-    assert frame_record["unknown_regions"] == []
 
 
 # 测试距离和走廊接口结果可以写入单帧记录
@@ -244,10 +185,7 @@ def test_new_module_results_are_written_to_record() -> None:
 
     assert frame_record["known_objects"][0]["distance"] == 8.5
     assert frame_record["distance_estimation"]["enabled"]
-    assert (
-        frame_record["distance_estimation"]["method"]
-        == "test_distance"
-    )
+    assert frame_record["distance_estimation"]["method"] == "test_distance"
     assert frame_record["corridor_prediction"]["confidence"] == 0.8
     assert frame_record["corridor_prediction"]["polygon"][0] == [
         5,

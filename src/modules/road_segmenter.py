@@ -9,24 +9,33 @@
 import logging
 import os
 import time
-from typing import Optional, Tuple
+from typing import Optional
+from typing import Tuple
 
 import cv2
 import numpy as np
 import torch
-from scipy.interpolate import splprep, splev
-from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
+from scipy.interpolate import splev
+from scipy.interpolate import splprep
+from transformers import (
+    SegformerForSemanticSegmentation,
+    SegformerImageProcessor,
+)
 
 from src.config.config import RoadSegmenterConfig
-from src.interface.schemas import RoadSegmentResult, SystemStatus
+from src.interface.schemas import RoadSegmentResult
+from src.interface.schemas import SystemStatus
 
 
 class RoadSegmenter:
     """负责识别图像中的可行驶区域"""
 
     # 初始化RoadSegmenter
-    def __init__(self, config: Optional[RoadSegmenterConfig] = None,
-                 config_path: Optional[str] = None):
+    def __init__(
+        self,
+        config: Optional[RoadSegmenterConfig] = None,
+        config_path: Optional[str] = None,
+    ) -> None:
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
         if config is not None:
@@ -64,7 +73,9 @@ class RoadSegmenter:
                 f"Loading SegFormer model from HuggingFace: {model_name}"
             )
 
-            self.processor = SegformerImageProcessor.from_pretrained(model_name)
+            self.processor = SegformerImageProcessor.from_pretrained(
+                model_name
+            )
             self.model = SegformerForSemanticSegmentation.from_pretrained(
                 model_name,
                 num_labels=self.config.model.num_classes,
@@ -90,15 +101,13 @@ class RoadSegmenter:
             )
 
         except Exception as e:
-            self.logger.error(
-                f"Failed to initialize SegFormer: {str(e)}"
-            )
-            raise RuntimeError(
-                f"Model initialization failed: {str(e)}"
-            )
+            self.logger.error(f"Failed to initialize SegFormer: {str(e)}")
+            raise RuntimeError(f"Model initialization failed: {str(e)}")
 
     # 将图像填充到尺寸能被divisor整除
-    def _pad_to_divisible(self, image: np.ndarray) -> Tuple[np.ndarray, int, int]:
+    def _pad_to_divisible(
+        self, image: np.ndarray
+    ) -> Tuple[np.ndarray, int, int]:
         height, width = image.shape[:2]
         divisor = self.config.data.divisor
         pad_height = (divisor - height % divisor) % divisor
@@ -120,7 +129,9 @@ class RoadSegmenter:
         elif method == "sobel":
             sobel_x = cv2.Sobel(mask, cv2.CV_64F, 1, 0, ksize=3)
             sobel_y = cv2.Sobel(mask, cv2.CV_64F, 0, 1, ksize=3)
-            return cv2.convertScaleAbs(cv2.addWeighted(sobel_x, 0.5, sobel_y, 0.5, 0))
+            return cv2.convertScaleAbs(
+                cv2.addWeighted(sobel_x, 0.5, sobel_y, 0.5, 0)
+            )
         else:
             contours, _ = cv2.findContours(
                 mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -147,7 +158,9 @@ class RoadSegmenter:
 
     # 使用B样条平滑轮廓
     def _smooth_contour(self, mask: np.ndarray) -> np.ndarray:
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
         if not contours:
             return mask
 
@@ -159,25 +172,35 @@ class RoadSegmenter:
         for contour in contours:
             contour = contour.squeeze()
             if contour.ndim == 1:
-                cv2.drawContours(smoothed_mask, [contour.reshape(1, 1, 2)], -1, 255, -1)
+                cv2.drawContours(
+                    smoothed_mask, [contour.reshape(1, 1, 2)], -1, 255, -1
+                )
                 continue
             if len(contour) < spline_order + 2:
-                cv2.drawContours(smoothed_mask, [contour.reshape(-1, 1, 2)], -1, 255, -1)
+                cv2.drawContours(
+                    smoothed_mask, [contour.reshape(-1, 1, 2)], -1, 255, -1
+                )
                 continue
 
             x = contour[:, 0]
             y = contour[:, 1]
 
             try:
-                tck, _ = splprep([x, y], k=spline_order, s=smoothing_factor * len(contour))
+                tck, _ = splprep(
+                    [x, y], k=spline_order, s=smoothing_factor * len(contour)
+                )
                 t = np.linspace(0, 1, resample_points)
                 x_smooth, y_smooth = splev(t, tck)
-                smooth_contour = np.column_stack([x_smooth, y_smooth]).astype(np.int32)
+                smooth_contour = np.column_stack([x_smooth, y_smooth]).astype(
+                    np.int32
+                )
                 smooth_contour = smooth_contour.reshape(-1, 1, 2)
                 cv2.drawContours(smoothed_mask, [smooth_contour], -1, 255, -1)
             except Exception as e:
                 self.logger.warning(f"Spline smoothing failed: {str(e)}")
-                cv2.drawContours(smoothed_mask, [contour.reshape(-1, 1, 2)], -1, 255, -1)
+                cv2.drawContours(
+                    smoothed_mask, [contour.reshape(-1, 1, 2)], -1, 255, -1
+                )
 
         return smoothed_mask
 
@@ -187,25 +210,21 @@ class RoadSegmenter:
             return (
                 False,
                 self.config.system.error_codes["invalid_input"],
-                "Input frame is None"
+                "Input frame is None",
             )
         if len(frame.shape) != 3 or frame.shape[2] != 3:
             return (
                 False,
                 self.config.system.error_codes["invalid_input"],
-                f"Invalid input shape: {frame.shape}"
+                f"Invalid input shape: {frame.shape}",
             )
         if frame.size == 0:
             return (
                 False,
                 self.config.system.error_codes["invalid_input"],
-                "Input frame is empty"
+                "Input frame is empty",
             )
-        return (
-            True,
-            self.config.system.error_codes["success"],
-            "OK"
-        )
+        return (True, self.config.system.error_codes["success"], "OK")
 
     # 计算图像平均亮度
     def _calculate_brightness(self, frame: np.ndarray) -> float:
@@ -261,8 +280,9 @@ class RoadSegmenter:
             return SystemStatus.NORMAL, quality_metrics
 
     # 对单帧图像进行可行驶区域分割
-    def predict(self, frame: np.ndarray,
-                timestamp: Optional[float] = None) -> RoadSegmentResult:
+    def predict(
+        self, frame: np.ndarray, timestamp: Optional[float] = None
+    ) -> RoadSegmentResult:
         start_time = time.time()
         valid, error_code, error_msg = self._validate_input(frame)
         if not valid:
@@ -288,9 +308,7 @@ class RoadSegmenter:
 
         if system_status == SystemStatus.UNAVAILABLE:
             height, width = frame.shape[:2]
-            reason = ", ".join(
-                quality_metrics.get("unavailable_reasons", [])
-            )
+            reason = ", ".join(quality_metrics.get("unavailable_reasons", []))
             self.logger.warning(
                 f"Image quality check failed - unavailable: {reason}"
             )
@@ -337,11 +355,15 @@ class RoadSegmenter:
                     align_corners=False,
                 )
 
-                predicted_mask = upsampled_logits.argmax(dim=1).cpu().numpy()[0]
+                predicted_mask = (
+                    upsampled_logits.argmax(dim=1).cpu().numpy()[0]
+                )
 
-                road_confidence_map = upsampled_probs[
-                    0, self.config.get_road_label()
-                ].cpu().numpy()
+                road_confidence_map = (
+                    upsampled_probs[0, self.config.get_road_label()]
+                    .cpu()
+                    .numpy()
+                )
 
             predicted_mask = predicted_mask.astype(np.uint8)
 
@@ -363,17 +385,20 @@ class RoadSegmenter:
                 road_confidence_map[road_mask == 255] >= conf_threshold
             )
             global_confidence = (
-                confident_road_pixels / road_pixels
-                if road_pixels > 0
-                else 0.0
+                confident_road_pixels / road_pixels if road_pixels > 0 else 0.0
             )
 
-            if (self.config.quality.enable_quality_check
-                    and system_status == SystemStatus.NORMAL):
-                if global_confidence < self.config.quality.degraded_confidence_threshold:
+            if (
+                self.config.quality.enable_quality_check
+                and system_status == SystemStatus.NORMAL
+            ):
+                if (
+                    global_confidence
+                    < self.config.quality.degraded_confidence_threshold
+                ):
                     system_status = SystemStatus.DEGRADED
-                    quality_metrics["degraded_reasons"] = (
-                        quality_metrics.get("degraded_reasons", [])
+                    quality_metrics["degraded_reasons"] = quality_metrics.get(
+                        "degraded_reasons", []
                     )
                     quality_metrics["degraded_reasons"].append(
                         f"low_confidence ({global_confidence:.3f})"
@@ -390,9 +415,7 @@ class RoadSegmenter:
                     )
 
             if system_status == SystemStatus.DEGRADED:
-                reason = ", ".join(
-                    quality_metrics.get("degraded_reasons", [])
-                )
+                reason = ", ".join(quality_metrics.get("degraded_reasons", []))
                 self.logger.warning(f"Image quality degraded: {reason}")
 
             inference_time_ms = (time.time() - start_time) * 1000
@@ -407,7 +430,8 @@ class RoadSegmenter:
                 error_message=(
                     "OK"
                     if system_status == SystemStatus.NORMAL
-                    else f"Degraded: {', '.join(quality_metrics.get('degraded_reasons', []))}"
+                    else "Degraded: "
+                    + ", ".join(quality_metrics.get("degraded_reasons", []))
                 ),
                 inference_time_ms=inference_time_ms,
                 timestamp=timestamp,
@@ -418,7 +442,9 @@ class RoadSegmenter:
         except Exception as e:
             self.logger.error(f"Inference error: {str(e)}")
             return RoadSegmentResult(
-                mask=np.zeros((frame.shape[0], frame.shape[1]), dtype=np.uint8),
+                mask=np.zeros(
+                    (frame.shape[0], frame.shape[1]), dtype=np.uint8
+                ),
                 boundary=None,
                 confidence_map=None,
                 global_confidence=0.0,
@@ -452,7 +478,9 @@ class RoadSegmenter:
                 checkpoint = checkpoint["state_dict"]
             elif "model_state_dict" in checkpoint:
                 checkpoint = checkpoint["model_state_dict"]
-            missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint, strict=False)
+            missing_keys, unexpected_keys = self.model.load_state_dict(
+                checkpoint, strict=False
+            )
             self.model.eval()
             self.logger.info(f"Local checkpoint loaded from {checkpoint_path}")
             self.logger.info(f"Missing keys: {len(missing_keys)}")
